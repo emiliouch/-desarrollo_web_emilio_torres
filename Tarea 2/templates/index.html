@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Portada{% endblock %}
+{% block content %}
+  <h1>Bienvenido</h1>
+    <p>En este sitio puedes publicar avisos de adopción de mascotas y ver los avisos publicados por otros usuarios.</p>
+  <!-- Sección que muestra los últimos 5 avisos de adopción -->
+  <section>
+    <h2>Últimos 5 avisos</h2>
+    <table class="tabla tabla-avisos">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Tipo</th>
+          <th>Cantidad</th>
+          <th>Comuna</th>
+          <th>Entrega</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Itera sobre la lista de avisos entregada por Flask -->
+        {% for a in avisos %}
+            <tr class="clickable" data-href="{{ url_for('detalle', aviso_id=a.id) }}">
+              <td>{{ a.id }}</td>
+              <td>{{ a.tipo }}</td>
+              <td>{{ a.cantidad }}</td>
+              <td>{{ a.comuna.nombre }}</td>
+              <td>{{ a.fecha_entrega.strftime('%Y-%m-%d %H:%M') if a.fecha_entrega else '' }}</td>
+            </tr>
+        {% else %}
+          <tr><td colspan="5">No hay avisos aún.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="estadisticas" class="mt-lg">
+    <h2>Estadísticas</h2>
+    <p>Próximamente.</p>
+  </section>
+{% endblock %}

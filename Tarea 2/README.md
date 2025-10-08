@@ -1,0 +1,9 @@
+Esta entrega fue desarrollada y probada contra el archivo original tarea2.sql (previo a la corrección del nuevo archivo). Para mantener claridad en el código, en models.py la propiedad se llama aviso_id, pero se mapea explícitamente a la columna física actividad_id mediante Column("actividad_id", ...). La aplicación no crea ni migra la base; asume el esquema ya creado con los SQL entregados.
+
+La aplicación valida todo en el servidor con SQLAlchemy antes de insertar y replica parte de esas validaciones en el cliente solo por usabilidad. Las vistas que leen datos usan joinedload para evitar N+1 en comuna, fotos y contactos. La portada trae los últimos cinco avisos y el listado pagina en grupos de cinco usando la técnica de pedir per + 1 filas para detectar si hay siguiente página sin COUNT(*).
+
+En foto y contactar_por la columna física se llama actividad_id; en los modelos se mapea como aviso_id con Column("actividad_id", ...) para mantener claridad semántica sin alterar la base. Las relaciones hijo usan cascade="all, delete-orphan" para que al borrar un aviso se eliminen sus dependencias incluso si el SQL no define ON DELETE CASCADE.
+
+La carga de imágenes escribe en static/uploads/<aviso_id>/. Cada archivo pasa por secure_filename, se le antepone un UUID y se valida extensión, tamaño y tipo real con inspección de cabecera mediante filetype. En BD se guarda la ruta relativa y Flask sirve los archivos estáticos; además se configura MAX_CONTENT_LENGTH para cortar cargas grandes a nivel de servidor.
+
+El formulario “Agregar aviso” rehidrata los datos en caso de error: si la validación falla, el servidor reconstruye los pares (método, identificador) y la plantilla los vuelve a renderizar para no perder lo ingresado. El JavaScript del cliente permite agregar pares dinámicamente y valida requeridos antes de enviar. El HTML usa data-href y un listener en lugar de onclick para hacer las filas clickeables, separando estructura y comportamiento.

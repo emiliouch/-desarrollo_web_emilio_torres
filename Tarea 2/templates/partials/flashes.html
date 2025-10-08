@@ -1,0 +1,11 @@
+<!-- sirve para mostrar los mensajes temporales que se envían desde Flask -->
+
+{% with msgs = get_flashed_messages() %}
+  {% if msgs %}
+    <div class="flash">
+      {% for m in msgs %}
+        <p>{{ m }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}

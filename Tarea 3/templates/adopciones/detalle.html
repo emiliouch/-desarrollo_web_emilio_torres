@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}Detalle{% endblock %}
+{% block content %}
+  <h1>Aviso #{{ aviso.id }}</h1>
+
+  <!-- Información principal del aviso -->
+  <section class="detalle">
+    <ul class="detalle-lista">
+      <li><strong>Tipo:</strong> {{ aviso.tipo }}</li>
+      <li><strong>Cantidad:</strong> {{ aviso.cantidad }}</li>
+      <li><strong>Comuna:</strong> {{ aviso.comuna.nombre }}</li>
+      <li><strong>Entrega:</strong> {{ aviso.fecha_entrega.strftime('%Y-%m-%d %H:%M') if aviso.fecha_entrega else '' }}</li>
+      <li><strong>Nombre contacto:</strong> {{ aviso.nombre }}</li>
+      <li><strong>Email:</strong> {{ aviso.email }}</li>
+      <li><strong>Celular:</strong> {{ aviso.celular or '—' }}</li>
+      <li><strong>Sector:</strong> {{ aviso.sector or '—' }}</li>
+      <li><strong>Descripción:</strong> {{ aviso.descripcion or '—' }}</li>
+    </ul>
+  </section>
+
+  <!-- Galería de imágenes -->
+  <section class="galeria">
+    <h2>Fotos</h2>
+    <div class="grid-fotos">
+      {% for f in aviso.fotos %}
+        <img src="{{ url_for('static', filename=f.ruta_archivo) }}" alt="foto aviso {{ aviso.id }}">
+      {% else %}
+        <p>Sin fotos.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Lista de métodos de contacto -->
+  <section class="contactos">
+    <h2>Contactos</h2>
+    <ul>
+      {% for c in aviso.contactos %}
+        <li>{{ c.nombre }}: {{ c.identificador }}</li>
+      {% else %}
+        <li>Sin métodos de contacto adicionales.</li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endblock %}
+
+  <!-- Sección de comentarios -->
+<section id="comentarios" data-aviso-id="{{ aviso.id }}">
+  <h2>Comentarios</h2>
+ 
+  <!-- Formulario para agregar un comentario -->
+  <form id="form-comentario" autocomplete="off" novalidate>
+    <label>Nombre
+      <input type="text" name="nombre" minlength="3" maxlength="80" required>
+    </label>
+    <label>Comentario
+      <textarea name="texto" rows="4" cols="50" minlength="5" required></textarea>
+    </label>
+    <button type="submit">Agregar comentario</button>
+    <div id="comentario-errors" class="form-errors" aria-live="polite"></div>
+  </form>
+
+  <ul id="comentarios-list" class="comentarios-list"></ul>
+</section>
+
+<!-- Scripts específicos para la página de detalle -->
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='js/adopciones-comments.js') }}"></script>
+{% endblock %}

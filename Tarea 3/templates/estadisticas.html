@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Estadísticas{% endblock %}
+{% block content %}
+  <h1>Estadísticas</h1>
+
+  <div id="chart-dia" style="height:360px;"></div>
+  <div id="chart-tipo" style="height:360px;margin-top:32px;"></div>
+  <div id="chart-mes-tipo" style="height:360px;margin-top:32px;"></div>
+
+  <p style="margin-top:24px;">
+    <a href="{{ url_for('portada') }}">Volver a la portada</a>
+  </p>
+{% endblock %}
+{% block scripts %}
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script src="{{ url_for('static', filename='js/adopciones-stats.js') }}"></script>
+{% endblock %}

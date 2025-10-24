@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Listado{% endblock %}
+{% block content %}
+  <h1>Listado de adopciones</h1>
+  <!-- Tabla con los avisos -->
+  <table class="tabla tabla-avisos">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Tipo</th>
+        <th>Cantidad</th>
+        <th>Comuna</th>
+        <th>Entrega</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Bucle sobre los avisos obtenidos desde la base de datos -->
+      {% for a in avisos %}
+        <tr class="clickable" data-href="{{ url_for('detalle', aviso_id=a.id) }}">
+          <td>{{ a.id }}</td>
+          <td>{{ a.tipo }}</td>
+          <td>{{ a.cantidad }}</td>
+          <td>{{ a.comuna.nombre }}</td>
+          <td>{{ a.fecha_entrega.strftime('%Y-%m-%d %H:%M') if a.fecha_entrega else '' }}</td>
+        </tr>
+      {% else %}
+        <!-- Mensaje en caso de no haber resultados -->
+        <tr><td colspan="5">No hay avisos.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="paginacion">
+    {% if page > 1 %}
+      <a href="{{ url_for('listado', page=page-1) }}">Anterior</a>
+    {% endif %}
+    <span>Página {{ page }}</span>
+    {% if has_next %}
+      <a href="{{ url_for('listado', page=page+1) }}">Siguiente</a>
+    {% endif %}
+  </div>
+{% endblock %}

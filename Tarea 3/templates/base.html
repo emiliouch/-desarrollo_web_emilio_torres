@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+
+  <!-- csp para la parte de seguridad -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:;
+                 script-src 'self' https://code.highcharts.com;
+                 style-src 'self' 'unsafe-inline';
+                 object-src 'none'; base-uri 'self'; form-action 'self'">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Adopciones{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav">
+        <a href="{{ url_for('portada') }}">Portada</a>
+        <a href="{{ url_for('form_aviso') }}">Agregar aviso</a>
+        <a href="{{ url_for('listado') }}">Listado</a>
+        <a href="{{ url_for('estadisticas') }}">Estadísticas</a>
+    </nav>
+  </header>
+
+  {% include 'partials/flashes.html' %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}
+    <script src="{{ url_for('static', filename='js/select.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/validations.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ui.js') }}"></script>
+  {% endblock %}
+</body>
+</html>

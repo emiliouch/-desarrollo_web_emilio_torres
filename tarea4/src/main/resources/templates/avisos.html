@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:;
+                 script-src 'self';
+                 style-src 'self' 'unsafe-inline';
+                 object-src 'none'; base-uri 'self'; form-action 'self'">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Avisos de adopción</title>
+
+  <link rel="stylesheet" th:href="@{/css/styles.css}">
+</head>
+<body>
+
+<!-- Reutilizamos el fragmento de navegación -->
+<div th:replace="~{fragments/nav :: navbar}"></div>
+
+<main class="container">
+  <h1>Listado de avisos de adopción</h1>
+
+  <p>Haz clic en "Evaluar" para asignar una nota entre 1 y 7 a cada aviso.</p>
+
+  <section class="mt-lg">
+    <table class="tabla tabla-avisos" id="tabla-avisos">
+      <thead>
+      <tr>
+        <th>ID</th>
+        <th>Fecha publicación</th>
+        <th>Sector</th>
+        <th>Cantidad</th>
+        <th>Tipo</th>
+        <th>Edad</th>
+        <th>Comuna</th>
+        <th>Nota promedio</th>
+        <th># notas</th>
+        <th>Acciones</th>
+      </tr>
+      </thead>
+      <tbody>
+      <!-- Se rellena dinámicamente con ratings.js -->
+      </tbody>
+    </table>
+  </section>
+
+  <div id="paginacion" class="paginacion">
+    <button id="prev-page" type="button" class="btn-sec">Anterior</button>
+    <span id="page-info"></span>
+    <button id="next-page" type="button" class="btn-sec">Siguiente</button>
+  </div>
+</main>
+
+<script th:src="@{/js/ratings.js}"></script>
+
+</body>
+</html>

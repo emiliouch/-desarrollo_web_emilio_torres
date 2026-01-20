@@ -1,6 +1,6 @@
 Option Explicit
 
-'Guarda todos los datos necesarios para exportar 1 producto al Repositorio.
+'Guarda datos para exportar un producto al repositorio
 Public Type tExportParams
     RepoPath As String
     CondorInputPath As String
@@ -39,7 +39,6 @@ Public Type tExportParams
     
     Observacion As String
     
-    'Campos que a veces no vienen de Condor o dependen del modelo.
     Ventas As Variant
     GastosDirectosPct As Variant
     GastosIndirectosPct As Variant
@@ -57,14 +56,14 @@ Public Type tExportParams
     OtrosCostosDirectosFijo As Variant
 End Type
 
-'Abre el formulario existente del proyecto para capturar datos manuales y rutas de archivos.
+'Abre el formulario existente del proyecto
 Public Sub abrir_rep_condor()
     Dim frm As Object
-    Set frm = VBA.UserForms.Add("Repositorio") 'Nombre de la clase del UserForm dentro del proyecto.
+    Set frm = VBA.UserForms.Add("Repositorio")
     frm.Show
 End Sub
 
-'Lee datos desde el UserForm, abre Condor (input/output), y escribe 1 fila nueva en la hoja "Base" del Repositorio.
+'Lee el formulario abre condor y escribe una fila nueva en Base
 Public Sub exportar_rep_condor()
     Dim p As tExportParams
     Dim frm As Object
@@ -79,7 +78,7 @@ Public Sub exportar_rep_condor()
     ExportarCore p, True
 End Sub
 
-'Hace toda la exportación: abre libros, calcula métricas disponibles y escribe en la tabla Base.
+'Hace toda la exportacion abre libros calcula metricas y escribe en Base
 Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boolean)
     Dim prevScreenUpdating As Boolean
     Dim prevEnableEvents As Boolean
@@ -92,7 +91,6 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
     
     Dim inWB As Workbook
     Dim outWB As Workbook
-    
     Dim outWS As Worksheet
     
     Dim headers As Object
@@ -111,78 +109,83 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
     
     On Error GoTo FAIL
     
-    'Guardamos settings actuales para no dejar Excel inestable.
+    'Guardamos settings actuales
     prevScreenUpdating = Application.ScreenUpdating
     prevEnableEvents = Application.EnableEvents
     prevDisplayAlerts = Application.DisplayAlerts
     prevAskToUpdateLinks = Application.AskToUpdateLinks
     prevCalculation = Application.Calculation
     
-    'Estabilidad y rendimiento durante la ejecución.
+    'Estabilidad
     Application.ScreenUpdating = False
     Application.EnableEvents = False
     Application.DisplayAlerts = False
     Application.AskToUpdateLinks = False
     Application.Calculation = xlCalculationManual
     
-    'Abrimos el repositorio.
+    'Abrimos el repositorio
     Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
     Set baseWS = GetWorksheet(repoWB, "Base")
     
-    'Mapa de headers para escribir por nombre, sin depender de columnas fijas (A, B, etc.).
+    'Mapa de headers
     Set headers = BuildHeaderMap(baseWS, 1)
     
-    'Calculamos el nuevo ID como (máximo ID actual + 1). El ID está en la columna del header "ID_INTERNO".
+    'Nuevo ID sumando 1 al ultimo ID disponible
     nextId = NextIdFromHeader(baseWS, headers, "ID_INTERNO", 2)
     
-    'Buscamos la siguiente fila libre según la columna del header "ID_INTERNO".
+    'Siguiente fila libre
     nextRow = NextFreeRowFromHeader(baseWS, headers, "ID_INTERNO", 2)
     
-    'Abrimos el input y el output de Condor (dos archivos separados).
+    'Input de condor
     Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
-    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
     
     'Output de condor
+    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
     Set outWS = GetWorksheet(outWB, "Results_IFRS4_Net")
     
-    'Leemos series desde el output (fila fija, desde columna C hacia la derecha).
-    writtenPremiumEUR = SumRowFromColC(outWS, 24) 'Written premium net of tax
-    devolucionesEUR = SumRowFromColC(outWS, 29)   'Devoluciones en el flujo
-    earnedPremiumEUR = SumRowFromColC(outWS, 39)  'EP
-    claimsEUR = SumRowFromColC(outWS, 66)         'Claims
+    'Written premium net of tax fila 24 desde C
+    writtenPremiumEUR = SumRowFromColC(outWS, 24)
     
-    'Comisiones desde el input (Product_1!C63).
+    'Devoluciones fila 29 desde C
+    devolucionesEUR = SumRowFromColC(outWS, 29)
+    
+    'EP fila 39 desde C
+    earnedPremiumEUR = SumRowFromColC(outWS, 39)
+    
+    'Claims fila 66 desde C
+    claimsEUR = SumRowFromColC(outWS, 66)
+    
+    'Comisiones input Product 1 C63
     commPct = NormalizePct(ReadCell(inWB, "Product_1", "C63"))
     
-    'Meses de venta desde el input (Product_1!C20), si existe.
+    'Meses de venta input Product 1 C20
     p.MesesVenta = ReadCell(inWB, "Product_1", "C20")
     
-    'Retención desde el input (Global!C108), si existe.
+    'Retencion input Global C108
     p.RetencionPct = NormalizePct(ReadCell(inWB, "Global", "C108"))
     
-    'Siniestralidad: se calcula robustamente como Claims / EP (sobre prima ganada).
+    'Siniestralidad como Claims sobre EP
     If earnedPremiumEUR <> 0 Then
         lossRatio = claimsEUR / earnedPremiumEUR
     Else
         lossRatio = Empty
     End If
     
-    'Devoluciones: se calcula como Devoluciones / Written premium (si el output viene en montos).
+    'Devoluciones como Devoluciones sobre Written premium
     If writtenPremiumEUR <> 0 Then
         devolPct = devolucionesEUR / writtenPremiumEUR
     Else
         devolPct = Empty
     End If
     
-    'Prima cliente neta (unitaria): se toma como written premium net of tax del output.
-    'Conversión EUR -> CLP según el tipo de cambio entregado.
+    'Prima cliente neta en CLP usando fx
     If p.FxEURCLP > 0 Then
         primaCLP = writtenPremiumEUR * p.FxEURCLP
     Else
         primaCLP = Empty
     End If
     
-    'Escritura de la fila en Base usando headers.
+    'Escritura en Base por nombre de header
     WriteByHeader baseWS, headers, nextRow, "ID_INTERNO", nextId
     WriteByHeader baseWS, headers, nextRow, "CODIGO_TARIFA", p.CodigoTarifa
     WriteByHeader baseWS, headers, nextRow, "RUTA", p.CondorOutputPath
@@ -208,7 +211,6 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
     WriteByHeader baseWS, headers, nextRow, "DURACION_MEDIA_MESES", p.DuracionMediaMeses
     WriteByHeader baseWS, headers, nextRow, "TASA_DE_ENTRADA", p.TasaEntrada
     
-    'Siniestro medio no siempre está disponible sin número de siniestros.
     WriteByHeader baseWS, headers, nextRow, "SINIESTRO_MEDIO", Empty
     WriteByHeader baseWS, headers, nextRow, "UNIDAD_SINIESTRO_MEDIO", "CLP"
     
@@ -280,31 +282,30 @@ CLEANUP:
     Exit Sub
     
 FAIL:
-    MsgBox "Error exportando al Repositorio: " & Err.Number & " - " & Err.Description, vbCritical
+    MsgBox "Error exportando al Repositorio", vbCritical
     Resume CLEANUP
 End Sub
 
-'Lee los campos desde el UserForm usando nombres típicos de controles.
-'Si un control no existe o viene vacío, el valor queda vacío y se valida después.
+'Lee campos desde el formulario existente
 Private Function GetParamsFromForm(ByVal frm As Object, ByRef p As tExportParams) As Boolean
     Dim v As Variant
     
     p.RepoPath = Trim$(CStr(TryGetCtrlValue(frm, "txtRepoPath")))
-    If Len(p.RepoPath) = 0 Then p.RepoPath = PickExcelFile("Selecciona Repositorio.xlsx")
+    If Len(p.RepoPath) = 0 Then p.RepoPath = PickExcelFile("Selecciona Repositorio")
     If Len(p.RepoPath) = 0 Then Exit Function
     
     p.CondorInputPath = Trim$(CStr(TryGetCtrlValue(frm, "txtCondorInputPath")))
-    If Len(p.CondorInputPath) = 0 Then p.CondorInputPath = PickExcelFile("Selecciona el input de Condor")
+    If Len(p.CondorInputPath) = 0 Then p.CondorInputPath = PickExcelFile("Selecciona input Condor")
     If Len(p.CondorInputPath) = 0 Then Exit Function
     
     p.CondorOutputPath = Trim$(CStr(TryGetCtrlValue(frm, "txtCondorOutputPath")))
-    If Len(p.CondorOutputPath) = 0 Then p.CondorOutputPath = PickExcelFile("Selecciona el output de Condor")
+    If Len(p.CondorOutputPath) = 0 Then p.CondorOutputPath = PickExcelFile("Selecciona output Condor")
     If Len(p.CondorOutputPath) = 0 Then Exit Function
     
     v = TryGetCtrlValue(frm, "txtFxEURCLP")
     If IsNumeric(v) Then p.FxEURCLP = CDbl(v) Else p.FxEURCLP = 0#
     If p.FxEURCLP <= 0 Then
-        v = Application.InputBox("Ingresa el tipo de cambio EUR -> CLP", "Tipo de cambio", Type:=1)
+        v = Application.InputBox("Ingresa tipo cambio EUR a CLP", "Tipo cambio", Type:=1)
         If v = False Then Exit Function
         p.FxEURCLP = CDbl(v)
         If p.FxEURCLP <= 0 Then Exit Function
@@ -345,7 +346,6 @@ Private Function GetParamsFromForm(ByVal frm As Object, ByRef p As tExportParams
     p.Observacion = Trim$(CStr(TryGetCtrlValue(frm, "txtObservacion")))
     
     p.CuotasPromedio = EmptyIfBlank(TryGetCtrlValue(frm, "txtCuotasPromedio"))
-    
     p.GastosDirectosPct = EmptyIfBlank(TryGetCtrlValue(frm, "txtGastosDirectos"))
     p.GastosIndirectosPct = EmptyIfBlank(TryGetCtrlValue(frm, "txtGastosIndirectos"))
     
@@ -360,21 +360,20 @@ Private Function GetParamsFromForm(ByVal frm As Object, ByRef p As tExportParams
     p.CostosVenta = EmptyIfBlank(TryGetCtrlValue(frm, "txtCostosVenta"))
     p.OtrosCostosDirectosFijo = EmptyIfBlank(TryGetCtrlValue(frm, "txtOtrosCostosDirectosFijo"))
     
-    'Validación mínima para evitar filas incompletas en Base.
     If Len(p.CodigoTarifa) = 0 Then
-        MsgBox "Falta Código de Tarifa.", vbExclamation
+        MsgBox "Falta Codigo Tarifa", vbExclamation
         Exit Function
     End If
     
     If Len(p.Poliza) = 0 Then
-        MsgBox "Falta Póliza.", vbExclamation
+        MsgBox "Falta Poliza", vbExclamation
         Exit Function
     End If
     
     GetParamsFromForm = True
 End Function
 
-'Busca un UserForm ya cargado por nombre de clase.
+'Busca un formulario ya cargado
 Private Function GetLoadedUserForm(ByVal formClassName As String) As Object
     Dim uf As Object
     For Each uf In VBA.UserForms
@@ -385,7 +384,7 @@ Private Function GetLoadedUserForm(ByVal formClassName As String) As Object
     Next uf
 End Function
 
-'Lee el .Value de un control por nombre, sin romper si el control no existe.
+'Lee el value de un control sin romper si no existe
 Private Function TryGetCtrlValue(ByVal frm As Object, ByVal ctrlName As String) As Variant
     On Error GoTo EH
     TryGetCtrlValue = frm.Controls(ctrlName).Value
@@ -394,7 +393,7 @@ EH:
     TryGetCtrlValue = Empty
 End Function
 
-'Convierte un checkbox/boolean a "Si" / "No". Si viene vacío, devuelve vacío.
+'Convierte boolean a Si No
 Private Function BoolToSiNo(ByVal v As Variant) As String
     If IsEmpty(v) Then Exit Function
     If VarType(v) = vbBoolean Then
@@ -404,7 +403,7 @@ Private Function BoolToSiNo(ByVal v As Variant) As String
     End If
 End Function
 
-'Si un valor viene vacío o en blanco, devuelve Empty para escribir celdas limpias.
+'Devuelve Empty si viene vacio
 Private Function EmptyIfBlank(ByVal v As Variant) As Variant
     If IsEmpty(v) Then
         EmptyIfBlank = Empty
@@ -415,7 +414,7 @@ Private Function EmptyIfBlank(ByVal v As Variant) As Variant
     End If
 End Function
 
-'Abre un FilePicker para seleccionar un Excel.
+'Selector de archivo excel
 Private Function PickExcelFile(ByVal titleText As String) As String
     Dim fd As FileDialog
     Set fd = Application.FileDialog(msoFileDialogFilePicker)
@@ -433,17 +432,17 @@ Private Function PickExcelFile(ByVal titleText As String) As String
     End With
 End Function
 
-'Devuelve una hoja por nombre y lanza error claro si no existe.
+'Devuelve una hoja por nombre
 Private Function GetWorksheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
     On Error GoTo EH
     Set GetWorksheet = wb.Worksheets(sheetName)
     Exit Function
 EH:
     Err.Raise vbObjectError + 513, "GetWorksheet", _
-              "No existe la hoja '" & sheetName & "' en el archivo '" & wb.Name & "'."
+              "No existe la hoja " & sheetName & " en el archivo " & wb.Name
 End Function
 
-'Arma un diccionario header->col leyendo la fila de encabezados.
+'Arma diccionario header a columna
 Private Function BuildHeaderMap(ByVal ws As Worksheet, ByVal headerRow As Long) As Object
     Dim d As Object
     Dim lastCol As Long
@@ -451,7 +450,7 @@ Private Function BuildHeaderMap(ByVal ws As Worksheet, ByVal headerRow As Long) 
     Dim k As String
     
     Set d = CreateObject("Scripting.Dictionary")
-    d.CompareMode = 1 'TextCompare
+    d.CompareMode = 1
     
     lastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
     For c = 1 To lastCol
@@ -464,7 +463,7 @@ Private Function BuildHeaderMap(ByVal ws As Worksheet, ByVal headerRow As Long) 
     Set BuildHeaderMap = d
 End Function
 
-'Escribe un valor en la columna del header indicado si el header existe.
+'Escribe un valor usando nombre de header
 Private Sub WriteByHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal rowIndex As Long, ByVal headerName As String, ByVal value As Variant)
     Dim col As Long
     If headers.Exists(headerName) Then
@@ -473,7 +472,7 @@ Private Sub WriteByHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal 
     End If
 End Sub
 
-'Calcula el próximo ID como Max(ID_INTERNO) + 1.
+'Calcula proximo id
 Private Function NextIdFromHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal headerName As String, ByVal firstDataRow As Long) As Long
     Dim col As Long
     Dim lastRow As Long
@@ -481,7 +480,7 @@ Private Function NextIdFromHeader(ByVal ws As Worksheet, ByVal headers As Object
     Dim m As Variant
     
     If Not headers.Exists(headerName) Then
-        Err.Raise vbObjectError + 701, "NextIdFromHeader", "No existe el header '" & headerName & "'."
+        Err.Raise vbObjectError + 701, "NextIdFromHeader", "No existe el header " & headerName
     End If
     
     col = CLng(headers(headerName))
@@ -504,13 +503,13 @@ Private Function NextIdFromHeader(ByVal ws As Worksheet, ByVal headers As Object
     End If
 End Function
 
-'Encuentra la siguiente fila libre usando la columna del header ancla.
+'Encuentra siguiente fila libre
 Private Function NextFreeRowFromHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal headerName As String, ByVal firstDataRow As Long) As Long
     Dim col As Long
     Dim lastRow As Long
     
     If Not headers.Exists(headerName) Then
-        Err.Raise vbObjectError + 702, "NextFreeRowFromHeader", "No existe el header '" & headerName & "'."
+        Err.Raise vbObjectError + 702, "NextFreeRowFromHeader", "No existe el header " & headerName
     End If
     
     col = CLng(headers(headerName))
@@ -525,13 +524,13 @@ Private Function NextFreeRowFromHeader(ByVal ws As Worksheet, ByVal headers As O
     End If
 End Function
 
-'Suma números en una fila comenzando desde la columna C hacia la derecha hasta que se acaben los valores.
+'Suma fila desde columna C
 Private Function SumRowFromColC(ByVal ws As Worksheet, ByVal rowIndex As Long) As Double
     Dim c As Long
     Dim v As Variant
     Dim sum As Double
     
-    c = 3 'Columna C
+    c = 3
     Do
         v = ws.Cells(rowIndex, c).Value2
         If IsEmpty(v) Then Exit Do
@@ -542,7 +541,7 @@ Private Function SumRowFromColC(ByVal ws As Worksheet, ByVal rowIndex As Long) A
     SumRowFromColC = sum
 End Function
 
-'Lee una celda por (hoja, dirección). Si no existe, devuelve Empty.
+'Lee una celda por hoja y direccion
 Private Function ReadCell(ByVal wb As Workbook, ByVal sheetName As String, ByVal address As String) As Variant
     On Error GoTo EH
     ReadCell = wb.Worksheets(sheetName).Range(address).Value2
@@ -551,8 +550,7 @@ EH:
     ReadCell = Empty
 End Function
 
-'Normaliza porcentajes para que queden en decimal.
-'Si viene como 12 (12%), se convierte a 0.12. Si viene 0.12 se deja igual.
+'Normaliza porcentaje a decimal
 Private Function NormalizePct(ByVal v As Variant) As Variant
     If IsEmpty(v) Or v = vbNullString Then
         NormalizePct = Empty
@@ -571,7 +569,7 @@ Private Function NormalizePct(ByVal v As Variant) As Variant
     End If
 End Function
 
-'Convierte un monto en EUR a CLP usando fx. Si viene vacío, devuelve Empty.
+'Convierte monto EUR a CLP
 Private Function ConvertEURToCLP(ByVal amount As Variant, ByVal fx As Double) As Variant
     If IsEmpty(amount) Or Not IsNumeric(amount) Then
         ConvertEURToCLP = Empty
@@ -584,4 +582,5 @@ Private Function ConvertEURToCLP(ByVal amount As Variant, ByVal fx As Double) As
         ConvertEURToCLP = CDbl(amount) * fx
     End If
 End Function
+
 

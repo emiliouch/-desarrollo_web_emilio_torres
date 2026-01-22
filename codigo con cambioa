@@ -1,0 +1,252 @@
+Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boolean)
+    Dim prevScreenUpdating As Boolean
+    Dim prevEnableEvents As Boolean
+    Dim prevDisplayAlerts As Boolean
+    Dim prevAskToUpdateLinks As Boolean
+    Dim prevCalculation As XlCalculation
+
+    Dim repoWB As Workbook
+    Dim baseWS As Worksheet
+
+    Dim inWB As Workbook
+    Dim outWB As Workbook
+    Dim outPlanWS As Worksheet
+
+    Dim headers As Object
+    Dim nextRow As Long
+    Dim nextId As Long
+    Dim rowIndex As Long
+    Dim idValue As Long
+
+    Dim i As Long
+    Dim planSheetName As String
+    Dim prodSheetName As String
+
+    Dim totalCol As Long
+
+    Dim writtenPremiumCLP As Double
+    Dim devolucionesCLP As Double
+    Dim earnedPremiumCLP As Double
+    Dim nepCLP As Double
+    Dim paidClaimsCLP As Double
+
+    Dim devolPct As Variant
+    Dim lossRatio As Variant
+    Dim commPct As Variant
+    Dim mesesVentaPlan As Variant
+
+    On Error GoTo FAIL
+
+    'Guardamos settings actuales
+    prevScreenUpdating = Application.ScreenUpdating
+    prevEnableEvents = Application.EnableEvents
+    prevDisplayAlerts = Application.DisplayAlerts
+    prevAskToUpdateLinks = Application.AskToUpdateLinks
+    prevCalculation = Application.Calculation
+
+    'Estabilidad
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.AskToUpdateLinks = False
+    Application.Calculation = xlCalculationManual
+
+    'Abrimos el repositorio
+    Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
+    Set baseWS = GetWorksheet(repoWB, "Base")
+
+    'Mapa de headers
+    Set headers = BuildHeaderMap(baseWS, 1)
+
+    'Nuevo ID y siguiente fila
+    nextId = NextIdFromHeader(baseWS, headers, "ID_INTERNO", 2)
+    nextRow = NextFreeRowFromHeader(baseWS, headers, "ID_INTERNO", 2)
+
+    'Abrimos input y output de condor
+    Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+
+    'Iteracion por Plan i
+    i = 1
+    Do
+        planSheetName = "Plan " & CStr(i)
+        prodSheetName = "Product_" & CStr(i)
+
+        If Not WorksheetExists(outWB, planSheetName) Then Exit Do
+        If Not WorksheetExists(inWB, prodSheetName) Then Exit Do
+
+        Set outPlanWS = outWB.Worksheets(planSheetName)
+
+        'Columna Total se busca en fila 17 desde C hacia adelante
+        totalCol = FindTotalCol(outPlanWS, 17, 3)
+
+        'Metricas en CLP (se lee en la columna Total)
+        writtenPremiumCLP = CDbl(ValSafe(outPlanWS.Cells(131, totalCol).Value2))
+        devolucionesCLP = CDbl(ValSafe(outPlanWS.Cells(137, totalCol).Value2))
+        earnedPremiumCLP = CDbl(ValSafe(outPlanWS.Cells(139, totalCol).Value2))
+
+        'NEP y Paid Claims para siniestralidad (CLP)
+        nepCLP = CDbl(ValSafe(outPlanWS.Cells(132, totalCol).Value2))
+        paidClaimsCLP = CDbl(ValSafe(outPlanWS.Cells(174, totalCol).Value2))
+
+        'Comisiones y meses de venta desde input Product_i
+        commPct = NormalizePct(ReadCell(inWB, prodSheetName, "C63"))
+        mesesVentaPlan = ReadCell(inWB, prodSheetName, "C20")
+
+        'Siniestralidad = PaidClaims / NEP
+        If nepCLP <> 0 Then
+            lossRatio = paidClaimsCLP / nepCLP
+        Else
+            lossRatio = Empty
+        End If
+
+        'Devoluciones = Devoluciones / Written premium
+        If writtenPremiumCLP <> 0 Then
+            devolPct = devolucionesCLP / writtenPremiumCLP
+        Else
+            devolPct = Empty
+        End If
+
+        'Fila destino en Base para este plan
+        rowIndex = nextRow + (i - 1)
+        idValue = nextId + (i - 1)
+
+        'Escritura en Base
+        WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
+        WriteByHeader baseWS, headers, rowIndex, "CODIGO_TARIFA", p.CodigoTarifa
+        WriteByHeader baseWS, headers, rowIndex, "RUTA", p.CondorOutputPath
+        WriteByHeader baseWS, headers, rowIndex, "ID_BIZAGI", p.IdBizagi
+        WriteByHeader baseWS, headers, rowIndex, "POLIZA", p.Poliza
+        WriteByHeader baseWS, headers, rowIndex, "SOCIO", p.Socio
+
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TERRITORIAL", p.ValidTerr
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TECNICA", p.ValidTec
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_VALOR_CLIENTE", p.ValidVC
+
+        WriteByHeader baseWS, headers, rowIndex, "PLAN", planSheetName
+
+        'TODO prima cliente neta pendiente
+        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", Empty
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES", commPct
+        WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", mesesVentaPlan
+
+        WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", lossRatio
+        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
+
+        'Campos desde formulario
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", NormalizePct(p.GastosDirectosPct)
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", NormalizePct(p.GastosIndirectosPct)
+        WriteByHeader baseWS, headers, rowIndex, "RETENCION", NormalizePct(p.RetencionPct)
+        WriteByHeader baseWS, headers, rowIndex, "VENTAS", p.Ventas
+        WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", p.DuracionMediaMeses
+        WriteByHeader baseWS, headers, rowIndex, "TASA_DE_ENTRADA", p.TasaEntrada
+        WriteByHeader baseWS, headers, rowIndex, "CUOTAS_PROMEDIO", p.CuotasPromedio
+        WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", NormalizePct(p.ValorClientePct)
+
+        WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", p.AsistenciaMensual
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_MENSUAL", "CLP"
+        WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_VENTA", p.AsistenciaVenta
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_VENTA", "CLP"
+        WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", p.CostosMensuales
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", "CLP"
+        WriteByHeader baseWS, headers, rowIndex, "COSTOS_VENTA", p.CostosVenta
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", "CLP"
+        WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_DIRECTOS_FIJO", p.OtrosCostosDirectosFijo
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_OTROS_COSTOS_DIRECTOS_FIJO", "CLP"
+
+        WriteByHeader baseWS, headers, rowIndex, "CUT_OFF_RUN_OFF", p.CutOffRunOff
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_CUT_OFF", p.FechaCutOff
+        WriteByHeader baseWS, headers, rowIndex, "INFLACION", p.Inflacion
+        WriteByHeader baseWS, headers, rowIndex, "PROFIT_SHARING", p.ProfitSharing
+        WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.PctProfitSharing
+        WriteByHeader baseWS, headers, rowIndex, "REASEGURO", p.Reaseguro
+        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CEDIDA", p.PctPrimaCedida
+        WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_CEDIDO", p.PctSiniestroCedido
+        WriteByHeader baseWS, headers, rowIndex, "FORMULA_SINIESTRALIDAD_APLI", p.AplicaFormulaSiniestralidad
+
+        WriteByHeader baseWS, headers, rowIndex, "BRIM", p.Brim
+        WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", p.KpiBrim
+        WriteByHeader baseWS, headers, rowIndex, "LIN_INFERIOR", p.LinInf
+        WriteByHeader baseWS, headers, rowIndex, "LIN_SUPERIOR", p.LinSup
+        WriteByHeader baseWS, headers, rowIndex, "MOTIVO_SEGUIMIENTO", p.MotivoSeguimiento
+        WriteByHeader baseWS, headers, rowIndex, "SOLICITA_SEGUIMIENTO", p.SolicitaSeguimiento
+        WriteByHeader baseWS, headers, rowIndex, "PLAN_ACCION_ESCENARIO_POSI", p.PlanAccionPos
+        WriteByHeader baseWS, headers, rowIndex, "PLAN_ACCION_ESCENARIO_NEGA", p.PlanAccionNeg
+        WriteByHeader baseWS, headers, rowIndex, "COMENTARIOS_ADICIONALES_BRI", p.ComentariosAdic
+
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
+        WriteByHeader baseWS, headers, rowIndex, "OBSERVACION", p.Observacion
+
+        i = i + 1
+    Loop
+
+    repoWB.Save
+
+CLEANUP:
+    On Error Resume Next
+
+    If Not inWB Is Nothing Then inWB.Close SaveChanges:=False
+    If Not outWB Is Nothing Then outWB.Close SaveChanges:=False
+
+    If closeRepoAfter Then
+        If Not repoWB Is Nothing Then repoWB.Close SaveChanges:=True
+    End If
+
+    Application.Calculation = prevCalculation
+    Application.AskToUpdateLinks = prevAskToUpdateLinks
+    Application.DisplayAlerts = prevDisplayAlerts
+    Application.EnableEvents = prevEnableEvents
+    Application.ScreenUpdating = prevScreenUpdating
+    Exit Sub
+
+FAIL:
+    MsgBox "Error exportando al Repositorio", vbCritical
+    Resume CLEANUP
+End Sub
+
+
+
+
+
+
+Private Function FindTotalCol(ByVal ws As Worksheet, ByVal headerRow As Long, ByVal startCol As Long) As Long
+    Dim c As Long
+    Dim lastCol As Long
+    Dim v As String
+
+    lastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+
+    For c = startCol To lastCol
+        v = Trim$(CStr(ws.Cells(headerRow, c).Value2))
+        If Len(v) > 0 Then
+            If StrComp(v, "Total", vbTextCompare) = 0 Then
+                FindTotalCol = c
+                Exit Function
+            End If
+        End If
+    Next c
+
+    Err.Raise vbObjectError + 901, "FindTotalCol", "No se encontro Total en la fila " & CStr(headerRow) & " de la hoja " & ws.Name
+End Function
+
+'Devuelve True si existe la hoja
+Private Function WorksheetExists(ByVal wb As Workbook, ByVal sheetName As String) As Boolean
+    On Error GoTo EH
+    WorksheetExists = Not wb.Worksheets(sheetName) Is Nothing
+    Exit Function
+EH:
+    WorksheetExists = False
+End Function
+
+'Convierte valores a numero sin romper
+Private Function ValSafe(ByVal v As Variant) As Double
+    If IsError(v) Or IsEmpty(v) Or v = vbNullString Then
+        ValSafe = 0#
+    ElseIf IsNumeric(v) Then
+        ValSafe = CDbl(v)
+    Else
+        ValSafe = CDbl(Val(CStr(v)))
+    End If
+End Function

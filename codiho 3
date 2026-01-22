@@ -1,0 +1,444 @@
+Option Explicit
+
+Private Type tExportParams
+    RepoPath As String
+    CondorInputPath As String
+    CondorOutputPath As String
+    FxEURCLP As Double
+    CodigoTarifa As String
+    Poliza As String
+End Type
+
+Public Sub abrir_rep_condor()
+    Dim frm As Object
+    Set frm = VBA.UserForms.Add("Repositorio")
+    frm.Show
+End Sub
+
+Public Sub exportar_rep_condor()
+    Dim p As tExportParams
+    Dim frm As Object
+
+    Set frm = GetLoadedUserForm("Repositorio")
+    If frm Is Nothing Then Set frm = VBA.UserForms.Add("Repositorio")
+
+    If Not GetParamsFromForm(frm, p) Then Exit Sub
+
+    ExportarCore p, True
+End Sub
+
+Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boolean)
+    Dim prevScreenUpdating As Boolean
+    Dim prevEnableEvents As Boolean
+    Dim prevDisplayAlerts As Boolean
+    Dim prevAskToUpdateLinks As Boolean
+    Dim prevCalculation As XlCalculation
+
+    Dim repoWB As Workbook
+    Dim baseWS As Worksheet
+    Dim inWB As Workbook
+    Dim outWB As Workbook
+    Dim ifrsWS As Worksheet
+
+    Dim headers As Object
+    Dim nextRow As Long
+    Dim nextId As Long
+
+    Dim plans As Collection
+    Dim planName As String
+
+    Dim mesesVenta As Variant
+    Dim commPct As Variant
+    Dim siniestralidad As Variant
+
+    Dim writtenPremiumEUR As Double
+    Dim devolucionesEUR As Double
+    Dim claimsEUR As Double
+
+    Dim writtenPremiumCLP As Variant
+    Dim devolucionesCLP As Variant
+    Dim claimsCLP As Variant
+
+    On Error GoTo FAIL
+
+    prevScreenUpdating = Application.ScreenUpdating
+    prevEnableEvents = Application.EnableEvents
+    prevDisplayAlerts = Application.DisplayAlerts
+    prevAskToUpdateLinks = Application.AskToUpdateLinks
+    prevCalculation = Application.Calculation
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.AskToUpdateLinks = False
+    Application.Calculation = xlCalculationManual
+
+    Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
+    Set baseWS = GetWorksheet(repoWB, "Base")
+    Set headers = BuildHeaderMap(baseWS, 1)
+
+    nextRow = NextFreeRowFromHeader(baseWS, headers, "ID_INTERNO", 2)
+    nextId = NextIdFromHeader(baseWS, headers, "ID_INTERNO", 2)
+
+    Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+
+    Set ifrsWS = GetWorksheet(outWB, "Results_IFRS4_Net")
+
+    'IFRS values se leen una vez y se reutilizan
+    writtenPremiumEUR = SumRowFromColC(ifrsWS, 24)
+    devolucionesEUR = SumRowFromColC(ifrsWS, 29)
+    claimsEUR = SumRowFromColC(ifrsWS, 66)
+
+    writtenPremiumCLP = ConvertEURToCLP(writtenPremiumEUR, p.FxEURCLP)
+    devolucionesCLP = ConvertEURToCLP(devolucionesEUR, p.FxEURCLP)
+    claimsCLP = ConvertEURToCLP(claimsEUR, p.FxEURCLP)
+
+    Set plans = GetPlanNames(inWB)
+    If plans.Count = 0 Then Err.Raise vbObjectError + 901, "ExportarCore", "No hay hojas Plan 1 Plan 2 etc"
+
+    Dim i As Long
+    For i = 1 To plans.Count
+        planName = CStr(plans(i))
+
+        'Input de condor por plan
+        mesesVenta = ReadCell(inWB, planName, "C20")
+        commPct = NormalizePct(ReadCell(inWB, planName, "C63"))
+        siniestralidad = NormalizePct(ReadCell(inWB, planName, "C124"))
+
+        'Cache de IFRS por plan para trazabilidad y futuros calculos
+        AppendCacheRow planName, p, writtenPremiumEUR, devolucionesEUR, claimsEUR, writtenPremiumCLP, devolucionesCLP, claimsCLP
+
+        'Escritura a Base una fila por plan
+        WriteByHeader baseWS, headers, nextRow, "ID_INTERNO", nextId
+        WriteByHeader baseWS, headers, nextRow, "CODIGO_TARIFA", p.CodigoTarifa
+        WriteByHeader baseWS, headers, nextRow, "POLIZA", p.Poliza
+        WriteByHeader baseWS, headers, nextRow, "RUTA", p.CondorOutputPath
+        WriteByHeader baseWS, headers, nextRow, "PLAN", planName
+
+        WriteByHeader baseWS, headers, nextRow, "PRIMA_CLIENTE_NETA", writtenPremiumCLP
+        WriteByHeader baseWS, headers, nextRow, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+
+        WriteByHeader baseWS, headers, nextRow, "MESES_DE_VENTA", mesesVenta
+        WriteByHeader baseWS, headers, nextRow, "COMISIONES", commPct
+        WriteByHeader baseWS, headers, nextRow, "SINIESTRALIDAD", siniestralidad
+
+        nextRow = nextRow + 1
+        nextId = nextId + 1
+    Next i
+
+    repoWB.Save
+
+CLEANUP:
+    On Error Resume Next
+
+    If Not inWB Is Nothing Then inWB.Close SaveChanges:=False
+    If Not outWB Is Nothing Then outWB.Close SaveChanges:=False
+
+    If closeRepoAfter Then
+        If Not repoWB Is Nothing Then repoWB.Close SaveChanges:=True
+    End If
+
+    Application.Calculation = prevCalculation
+    Application.AskToUpdateLinks = prevAskToUpdateLinks
+    Application.DisplayAlerts = prevDisplayAlerts
+    Application.EnableEvents = prevEnableEvents
+    Application.ScreenUpdating = prevScreenUpdating
+    Exit Sub
+
+FAIL:
+    MsgBox "Error exportar_rep_condor " & Err.Number & " " & Err.Description, vbCritical
+    Resume CLEANUP
+End Sub
+
+Private Function GetParamsFromForm(ByVal frm As Object, ByRef p As tExportParams) As Boolean
+    Dim v As Variant
+
+    p.RepoPath = Trim$(CStr(TryGetCtrlValue(frm, "txtRepoPath")))
+    If Len(p.RepoPath) = 0 Then p.RepoPath = PickExcelFile("Selecciona Repositorio")
+
+    p.CondorInputPath = Trim$(CStr(TryGetCtrlValue(frm, "txtCondorInputPath")))
+    If Len(p.CondorInputPath) = 0 Then p.CondorInputPath = PickExcelFile("Selecciona input Condor")
+
+    p.CondorOutputPath = Trim$(CStr(TryGetCtrlValue(frm, "txtCondorOutputPath")))
+    If Len(p.CondorOutputPath) = 0 Then p.CondorOutputPath = PickExcelFile("Selecciona output Condor")
+
+    p.CodigoTarifa = Trim$(CStr(TryGetCtrlValue(frm, "txtCodigoTarifa")))
+    If Len(p.CodigoTarifa) = 0 Then
+        v = Application.InputBox("Ingresa codigo tarifa", "Codigo tarifa", Type:=2)
+        If v = False Then Exit Function
+        p.CodigoTarifa = Trim$(CStr(v))
+    End If
+
+    p.Poliza = Trim$(CStr(TryGetCtrlValue(frm, "txtPoliza")))
+    If Len(p.Poliza) = 0 Then
+        v = Application.InputBox("Ingresa poliza", "Poliza", Type:=2)
+        If v = False Then Exit Function
+        p.Poliza = Trim$(CStr(v))
+    End If
+
+    v = TryGetCtrlValue(frm, "txtFxEURCLP")
+    If IsNumeric(v) Then
+        p.FxEURCLP = CDbl(v)
+    Else
+        v = Application.InputBox("Ingresa tipo cambio EUR CLP", "FX", Type:=1)
+        If v = False Then Exit Function
+        p.FxEURCLP = CDbl(v)
+    End If
+
+    If Len(p.RepoPath) = 0 Then Exit Function
+    If Len(p.CondorInputPath) = 0 Then Exit Function
+    If Len(p.CondorOutputPath) = 0 Then Exit Function
+    If p.FxEURCLP <= 0 Then Exit Function
+
+    GetParamsFromForm = True
+End Function
+
+Private Function GetLoadedUserForm(ByVal formName As String) As Object
+    Dim uf As Object
+    For Each uf In VBA.UserForms
+        If TypeName(uf) = formName Then
+            Set GetLoadedUserForm = uf
+            Exit Function
+        End If
+    Next uf
+End Function
+
+Private Function TryGetCtrlValue(ByVal frm As Object, ByVal ctrlName As String) As Variant
+    On Error GoTo EH
+    TryGetCtrlValue = frm.Controls(ctrlName).Value
+    Exit Function
+EH:
+    TryGetCtrlValue = Empty
+End Function
+
+Private Function PickExcelFile(ByVal titleText As String) As String
+    Dim fd As FileDialog
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+
+    With fd
+        .Title = titleText
+        .Filters.Clear
+        .Filters.Add "Excel", "*.xlsx; *.xlsm; *.xls"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then
+            PickExcelFile = vbNullString
+        Else
+            PickExcelFile = .SelectedItems(1)
+        End If
+    End With
+End Function
+
+Private Function GetWorksheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
+    On Error GoTo EH
+    Set GetWorksheet = wb.Worksheets(sheetName)
+    Exit Function
+EH:
+    Err.Raise vbObjectError + 513, "GetWorksheet", "No existe hoja " & sheetName & " en " & wb.Name
+End Function
+
+Private Function TryGetWorksheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
+    On Error Resume Next
+    Set TryGetWorksheet = wb.Worksheets(sheetName)
+    On Error GoTo 0
+End Function
+
+Private Function BuildHeaderMap(ByVal ws As Worksheet, ByVal headerRow As Long) As Object
+    Dim d As Object
+    Dim lastCol As Long
+    Dim c As Long
+    Dim key As String
+
+    Set d = CreateObject("Scripting.Dictionary")
+    d.CompareMode = 1
+
+    lastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        key = Trim$(CStr(ws.Cells(headerRow, c).Value2))
+        If Len(key) > 0 Then
+            If Not d.Exists(key) Then d.Add key, c
+        End If
+    Next c
+
+    Set BuildHeaderMap = d
+End Function
+
+Private Sub WriteByHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal rowN As Long, ByVal headerName As String, ByVal value As Variant)
+    If Not headers.Exists(headerName) Then Exit Sub
+    ws.Cells(rowN, CLng(headers(headerName))).Value2 = value
+End Sub
+
+Private Function NextIdFromHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal headerName As String, ByVal firstDataRow As Long) As Long
+    Dim colN As Long
+    Dim lastRow As Long
+    Dim mx As Variant
+
+    If Not headers.Exists(headerName) Then
+        NextIdFromHeader = 1
+        Exit Function
+    End If
+
+    colN = CLng(headers(headerName))
+    lastRow = ws.Cells(ws.Rows.Count, colN).End(xlUp).Row
+    If lastRow < firstDataRow Then
+        NextIdFromHeader = 1
+        Exit Function
+    End If
+
+    On Error GoTo EH
+    mx = Application.WorksheetFunction.Max(ws.Range(ws.Cells(firstDataRow, colN), ws.Cells(lastRow, colN)))
+    If IsNumeric(mx) Then
+        NextIdFromHeader = CLng(mx) + 1
+    Else
+        NextIdFromHeader = 1
+    End If
+    Exit Function
+EH:
+    NextIdFromHeader = 1
+End Function
+
+Private Function NextFreeRowFromHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal headerName As String, ByVal firstDataRow As Long) As Long
+    Dim colN As Long
+    Dim lastRow As Long
+
+    If Not headers.Exists(headerName) Then
+        NextFreeRowFromHeader = firstDataRow
+        Exit Function
+    End If
+
+    colN = CLng(headers(headerName))
+    lastRow = ws.Cells(ws.Rows.Count, colN).End(xlUp).Row
+
+    If lastRow < firstDataRow Then
+        NextFreeRowFromHeader = firstDataRow
+    Else
+        If Len(CStr(ws.Cells(lastRow, colN).Value2)) = 0 Then
+            NextFreeRowFromHeader = lastRow
+        Else
+            NextFreeRowFromHeader = lastRow + 1
+        End If
+    End If
+End Function
+
+Private Function ReadCell(ByVal wb As Workbook, ByVal sheetName As String, ByVal addr As String) As Variant
+    Dim ws As Worksheet
+    Set ws = TryGetWorksheet(wb, sheetName)
+    If ws Is Nothing Then
+        ReadCell = Empty
+        Exit Function
+    End If
+    On Error Resume Next
+    ReadCell = ws.Range(addr).Value2
+    On Error GoTo 0
+End Function
+
+Private Function NormalizePct(ByVal v As Variant) As Variant
+    If IsEmpty(v) Then
+        NormalizePct = Empty
+    ElseIf IsNumeric(v) Then
+        If CDbl(v) > 1# Then
+            NormalizePct = CDbl(v) / 100#
+        Else
+            NormalizePct = CDbl(v)
+        End If
+    Else
+        NormalizePct = v
+    End If
+End Function
+
+Private Function SumRowFromColC(ByVal ws As Worksheet, ByVal rowN As Long) As Double
+    Dim c As Long
+    Dim v As Variant
+    Dim s As Double
+
+    c = 3
+    Do
+        v = ws.Cells(rowN, c).Value2
+        If IsEmpty(v) Or Len(CStr(v)) = 0 Then Exit Do
+        If IsNumeric(v) Then s = s + CDbl(v)
+        c = c + 1
+    Loop
+
+    SumRowFromColC = s
+End Function
+
+Private Function ConvertEURToCLP(ByVal eur As Double, ByVal fxEURCLP As Double) As Variant
+    If fxEURCLP <= 0 Then
+        ConvertEURToCLP = Empty
+    Else
+        ConvertEURToCLP = eur * fxEURCLP
+    End If
+End Function
+
+Private Function GetPlanNames(ByVal wb As Workbook) As Collection
+    Dim col As New Collection
+    Dim i As Long
+    Dim nameS As String
+
+    i = 1
+    Do
+        nameS = "Plan " & CStr(i)
+        If TryGetWorksheet(wb, nameS) Is Nothing Then Exit Do
+        col.Add nameS
+        i = i + 1
+    Loop
+
+    Set GetPlanNames = col
+End Function
+
+Private Sub AppendCacheRow( _
+    ByVal planName As String, _
+    ByRef p As tExportParams, _
+    ByVal writtenPremiumEUR As Double, _
+    ByVal devolucionesEUR As Double, _
+    ByVal claimsEUR As Double, _
+    ByVal writtenPremiumCLP As Variant, _
+    ByVal devolucionesCLP As Variant, _
+    ByVal claimsCLP As Variant)
+
+    Dim ws As Worksheet
+    Dim nextRow As Long
+
+    Set ws = EnsureCacheSheet(ThisWorkbook, "Condor_Cache")
+
+    nextRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If nextRow < 2 Then nextRow = 2 Else nextRow = nextRow + 1
+
+    ws.Cells(nextRow, 1).Value2 = Now
+    ws.Cells(nextRow, 2).Value2 = planName
+    ws.Cells(nextRow, 3).Value2 = p.CondorInputPath
+    ws.Cells(nextRow, 4).Value2 = p.CondorOutputPath
+    ws.Cells(nextRow, 5).Value2 = p.FxEURCLP
+
+    ws.Cells(nextRow, 6).Value2 = writtenPremiumEUR
+    ws.Cells(nextRow, 7).Value2 = devolucionesEUR
+    ws.Cells(nextRow, 8).Value2 = claimsEUR
+
+    ws.Cells(nextRow, 9).Value2 = writtenPremiumCLP
+    ws.Cells(nextRow, 10).Value2 = devolucionesCLP
+    ws.Cells(nextRow, 11).Value2 = claimsCLP
+End Sub
+
+Private Function EnsureCacheSheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
+    Dim ws As Worksheet
+    Set ws = TryGetWorksheet(wb, sheetName)
+
+    If ws Is Nothing Then
+        Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+        ws.Name = sheetName
+
+        ws.Cells(1, 1).Value2 = "TS"
+        ws.Cells(1, 2).Value2 = "PLAN"
+        ws.Cells(1, 3).Value2 = "CONDOR_INPUT"
+        ws.Cells(1, 4).Value2 = "CONDOR_OUTPUT"
+        ws.Cells(1, 5).Value2 = "FX_EURCLP"
+        ws.Cells(1, 6).Value2 = "WRITTEN_PREMIUM_EUR"
+        ws.Cells(1, 7).Value2 = "DEVOLUCIONES_EUR"
+        ws.Cells(1, 8).Value2 = "CLAIMS_EUR"
+        ws.Cells(1, 9).Value2 = "WRITTEN_PREMIUM_CLP"
+        ws.Cells(1, 10).Value2 = "DEVOLUCIONES_CLP"
+        ws.Cells(1, 11).Value2 = "CLAIMS_CLP"
+    End If
+
+    Set EnsureCacheSheet = ws
+End Function

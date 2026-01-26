@@ -23,9 +23,9 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
     Dim prodSheetName As String
     
     Dim totalCol As Long
-    Dim lastColExp As Long
     
-    Dim gwpCLP As Double
+    Dim writtenGrossCLP As Double
+    Dim writtenNetCLP As Double
     Dim devolucionesCLP As Double
     Dim nepCLP As Double
     Dim paidClaimsCLP As Double
@@ -34,35 +34,34 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
     Dim devolPct As Variant
     Dim lossRatio As Variant
     Dim valorCliente As Variant
+    Dim denomLR As Double
     
     Dim comisionesPct As Variant
-    Dim mesesVentaPlan As Variant
     
+    Dim mesesVentaPlan As Variant
     Dim inflacionTxt As String
     Dim cutOffRunOffTxt As String
     Dim fechaCutOffVal As Variant
     
     Dim periodicidadTxt As String
     Dim productTypeTxt As String
-    Dim periodicidadKey As String
-    Dim isMensual As Boolean
-    Dim isUnica As Boolean
+    Dim isPrimaUnica As Boolean
     
     Dim ventasPlan As Double
     Dim expuestosPlan As Double
+    Dim lastColExp As Long
     Dim duracionMediaMeses As Variant
-    Dim permanencia As Variant
+    Dim permanenciaPlan As Variant
     
-    Dim primaClienteNeta As Variant
-    Dim ivaEfectivo As Variant
-    Dim ivaRecuperable As Variant
+    Dim primaClienteNetaCLP As Variant
     
     Dim gastosDirectosMonto As Double
     Dim gastosIndirectosMonto As Double
     Dim gastosDirectosPct As Variant
     Dim gastosIndirectosPct As Variant
     
-    Dim denomLR As Double
+    Dim ivaEfectivo As Variant
+    Dim ivaRecuperable As Variant
     
     Dim c As Long
     Dim v As Variant
@@ -73,32 +72,36 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
     
     On Error GoTo FAIL
     
-    'Settings
+    'Guardamos settings actuales
     prevScreenUpdating = Application.ScreenUpdating
     prevEnableEvents = Application.EnableEvents
     prevDisplayAlerts = Application.DisplayAlerts
     prevAskToUpdateLinks = Application.AskToUpdateLinks
     prevCalculation = Application.Calculation
     
+    'Estabilidad
     Application.ScreenUpdating = False
     Application.EnableEvents = False
     Application.DisplayAlerts = False
     Application.AskToUpdateLinks = False
     Application.Calculation = xlCalculationManual
     
-    'Repo
+    'Abrimos el repositorio
     Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
     Set baseWS = GetWorksheet(repoWB, "Base")
+    
+    'Mapa de headers
     Set headers = BuildHeaderMap(baseWS, 1)
     
+    'Nuevo ID y fila libre
     nextId = NextIdFromHeader(baseWS, headers, "ID_INTERNO", 2)
     nextRow = NextFreeRowFromHeader(baseWS, headers, "ID_INTERNO", 2)
     
-    'Condor
+    'Input y output de condor
     Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
     Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
     
-    'Planes
+    'Iteramos por Plan i
     i = 1
     Do
         planSheetName = "Plan " & CStr(i)
@@ -109,27 +112,33 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
         
         Set outPlanWS = outWB.Worksheets(planSheetName)
         
-        'Total col
+        'Columna Total se busca en fila 17 desde C
         totalCol = FindTotalCol(outPlanWS, 17, 3)
         
-        'Output por plan
-        gwpCLP = CDbl(ValSafe(outPlanWS.Cells(131, totalCol).Value2))
+        'Output por plan CLP leyendo desde la columna Total
+        writtenGrossCLP = CDbl(ValSafe(outPlanWS.Cells(131, totalCol).Value2))
+        writtenNetCLP = CDbl(ValSafe(outPlanWS.Cells(132, totalCol).Value2))
         devolucionesCLP = CDbl(ValSafe(outPlanWS.Cells(137, totalCol).Value2))
+        
         nepCLP = CDbl(ValSafe(outPlanWS.Cells(139, totalCol).Value2))
         paidClaimsCLP = CDbl(ValSafe(outPlanWS.Cells(174, totalCol).Value2))
+        
+        'Comisiones monto desde output
         comisionesMontoCLP = CDbl(ValSafe(outPlanWS.Cells(163, totalCol).Value2))
         
+        'Ventas por plan Total
         ventasPlan = CDbl(ValSafe(outPlanWS.Cells(126, totalCol).Value2))
         
-        'Expuestos sum fila 288 desde C hasta el final real
+        'Expuestos por plan sumatoria completa fila 288 desde C
         expuestosPlan = 0#
         lastColExp = outPlanWS.Cells(288, outPlanWS.Columns.Count).End(xlToLeft).Column
+        If lastColExp < 3 Then lastColExp = 3
         For c = 3 To lastColExp
             v = outPlanWS.Cells(288, c).Value2
             If IsNumeric(v) Then expuestosPlan = expuestosPlan + CDbl(v)
         Next c
         
-        'Gastos por plan
+        'Gastos directos e indirectos por plan monto y porcentaje sobre NEP
         gastosDirectosMonto = CDbl(ValSafe(outPlanWS.Cells(191, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(192, totalCol).Value2))
         gastosIndirectosMonto = CDbl(ValSafe(outPlanWS.Cells(196, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(197, totalCol).Value2))
         
@@ -141,14 +150,21 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
             gastosIndirectosPct = Empty
         End If
         
-        'Devoluciones pct
-        If gwpCLP <> 0# Then
-            devolPct = devolucionesCLP / gwpCLP
+        'Devoluciones pct sobre written premium net of tax
+        If writtenNetCLP <> 0# Then
+            devolPct = devolucionesCLP / writtenNetCLP
         Else
             devolPct = Empty
         End If
         
-        'Siniestralidad y valor cliente
+        'Valor cliente por plan
+        If nepCLP <> 0# Then
+            valorCliente = paidClaimsCLP / nepCLP
+        Else
+            valorCliente = Empty
+        End If
+        
+        'Siniestralidad por plan paid claims / (NEP - comisiones monto)
         denomLR = nepCLP - comisionesMontoCLP
         If denomLR <> 0# Then
             lossRatio = paidClaimsCLP / denomLR
@@ -156,16 +172,17 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
             lossRatio = Empty
         End If
         
-        If nepCLP <> 0# Then
-            valorCliente = paidClaimsCLP / nepCLP
+        'IVA efectivo y recuperable usando written gross y written net
+        If writtenNetCLP <> 0# Then
+            ivaEfectivo = (writtenGrossCLP - writtenNetCLP) / writtenNetCLP
+            ivaRecuperable = 0.19 - ivaEfectivo
         Else
-            valorCliente = Empty
+            ivaEfectivo = Empty
+            ivaRecuperable = Empty
         End If
         
         'Input por producto
-        comisionesPct = NormalizePct(ReadCell(inWB, prodSheetName, "C63"))
         mesesVentaPlan = ReadCell(inWB, prodSheetName, "C9")
-        
         inflacionTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C14")))
         cutOffRunOffTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C270")))
         
@@ -178,65 +195,60 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
         periodicidadTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C39")))
         productTypeTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C49")))
         
-        periodicidadKey = LCase$(periodicidadTxt)
-        isMensual = (InStr(1, periodicidadKey, "mens", vbTextCompare) > 0) Or (InStr(1, periodicidadKey, "month", vbTextCompare) > 0)
-        isUnica = (InStr(1, periodicidadKey, "unica", vbTextCompare) > 0) Or (InStr(1, periodicidadKey, "unica", vbTextCompare) > 0) Or (InStr(1, periodicidadKey, "single", vbTextCompare) > 0)
+        isPrimaUnica = (InStr(1, periodicidadTxt, "unica", vbTextCompare) > 0) Or (InStr(1, periodicidadTxt, "unica", vbTextCompare) > 0)
         
-        'Duracion media y permanencia segun periodicidad
-        If isMensual Then
+        'Duracion media meses segun periodicidad
+        If isPrimaUnica Then
             If ventasPlan <> 0# Then
                 duracionMediaMeses = expuestosPlan / ventasPlan
-                permanencia = expuestosPlan / ventasPlan
             Else
                 duracionMediaMeses = Empty
-                permanencia = Empty
             End If
         Else
             If ventasPlan <> 0# Then
                 duracionMediaMeses = expuestosPlan / ventasPlan
-                permanencia = expuestosPlan / ventasPlan
             Else
                 duracionMediaMeses = Empty
-                permanencia = Empty
             End If
+        End If
+        
+        'Permanencia total expuestos / total ventas
+        If ventasPlan <> 0# Then
+            permanenciaPlan = expuestosPlan / ventasPlan
+        Else
+            permanenciaPlan = Empty
         End If
         
         'Prima cliente neta segun periodicidad
-        If isMensual Then
-            If expuestosPlan <> 0# Then
-                primaClienteNeta = gwpCLP / expuestosPlan
+        If isPrimaUnica Then
+            If ventasPlan <> 0# Then
+                primaClienteNetaCLP = writtenGrossCLP / ventasPlan
             Else
-                primaClienteNeta = Empty
+                primaClienteNetaCLP = Empty
             End If
         Else
-            If ventasPlan <> 0# Then
-                primaClienteNeta = gwpCLP / ventasPlan
+            If expuestosPlan <> 0# Then
+                primaClienteNetaCLP = writtenGrossCLP / expuestosPlan
             Else
-                primaClienteNeta = Empty
+                primaClienteNetaCLP = Empty
             End If
         End If
         
-        'IVA efectivo y recuperable
-        If nepCLP <> 0# Then
-            ivaEfectivo = (gwpCLP - nepCLP) / nepCLP
-            ivaRecuperable = 0.19 - ivaEfectivo
-        Else
-            ivaEfectivo = Empty
-            ivaRecuperable = Empty
-        End If
+        'Comisiones pct en Base aun pendiente
+        comisionesPct = Empty
         
         'Tasa caida 144 meses fila 27 desde H
         tasaColStart = 8
         For k = 1 To 144
             tasaCaida(k) = CDbl(ValSafe(inWB.Worksheets(prodSheetName).Cells(27, tasaColStart + (k - 1)).Value2))
         Next k
-        'TODO exportar tasa caida a Tasa_Caida
+        'TODO exportar tasa caida a la tabla Tasa_Caida del repositorio
         
-        'Fila destino
+        'Fila destino en Base para este plan
         rowIndex = nextRow + (i - 1)
         idValue = nextId + (i - 1)
         
-        'Base
+        'Escritura en Base
         WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
         WriteByHeader baseWS, headers, rowIndex, "CODIGO_TARIFA", p.CodigoTarifa
         WriteByHeader baseWS, headers, rowIndex, "RUTA", p.CondorOutputPath
@@ -250,32 +262,35 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
         
         WriteByHeader baseWS, headers, rowIndex, "PLAN", planSheetName
         
-        WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD", periodicidadTxt
-        WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
-        
-        'Automatizables input
-        WriteByHeader baseWS, headers, rowIndex, "COMISIONES", comisionesPct
         WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", mesesVentaPlan
         WriteByHeader baseWS, headers, rowIndex, "INFLACION", inflacionTxt
         WriteByHeader baseWS, headers, rowIndex, "CUT_OFF_RUN_OFF", cutOffRunOffTxt
         WriteByHeader baseWS, headers, rowIndex, "FECHA_CUT_OFF", fechaCutOffVal
         
-        'Automatizables output
-        WriteByHeader baseWS, headers, rowIndex, "GWP", gwpCLP
+        WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD", periodicidadTxt
+        WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
+        
+        WriteByHeader baseWS, headers, rowIndex, "VENTAS", ventasPlan
+        WriteByHeader baseWS, headers, rowIndex, "EXPUESTOS", expuestosPlan
+        
+        WriteByHeader baseWS, headers, rowIndex, "GWP", writtenGrossCLP
+        WriteByHeader baseWS, headers, rowIndex, "WRITTEN_PREMIUM_NET", writtenNetCLP
+        
         WriteByHeader baseWS, headers, rowIndex, "NEP", nepCLP
         WriteByHeader baseWS, headers, rowIndex, "CARGA_SINIESTROS", paidClaimsCLP
-        WriteByHeader baseWS, headers, rowIndex, "EXPUESTOS", expuestosPlan
-        WriteByHeader baseWS, headers, rowIndex, "VENTAS", ventasPlan
-        
-        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNeta
-        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
         
         WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", duracionMediaMeses
-        WriteByHeader baseWS, headers, rowIndex, "PERMANENCIA", permanencia
+        WriteByHeader baseWS, headers, rowIndex, "PERMANENCIA", permanenciaPlan
         
+        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNetaCLP
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+        
+        'TODO COMISIONES en Base es porcentual
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES", comisionesPct
+        
+        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
         WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", lossRatio
         WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
-        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
         
         WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirectosPct
         WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndirectosPct
@@ -283,13 +298,6 @@ Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boole
         WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
         WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRecuperable
         
-        'Columna auxiliar si la agregas
-        WriteByHeader baseWS, headers, rowIndex, "COMISIONES_MONTO", comisionesMontoCLP
-        
-        'Pendiente
-        WriteByHeader baseWS, headers, rowIndex, "COMISION_BRUTA_SOBRE_PRIMA_BRUTA", Empty
-        
-        'Resto desde formulario
         WriteByHeader baseWS, headers, rowIndex, "PROFIT_SHARING", p.ProfitSharing
         WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.PctProfitSharing
         WriteByHeader baseWS, headers, rowIndex, "REASEGURO", p.Reaseguro
@@ -332,7 +340,7 @@ CLEANUP:
     Application.ScreenUpdating = prevScreenUpdating
     
     Exit Sub
-
+    
 FAIL:
     MsgBox "Error exportando al Repositorio", vbCritical
     Resume CLEANUP

@@ -1,0 +1,510 @@
+Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boolean)
+    Dim prevScreenUpdating As Boolean
+    Dim prevEnableEvents As Boolean
+    Dim prevDisplayAlerts As Boolean
+    Dim prevAskToUpdateLinks As Boolean
+    Dim prevCalculation As XlCalculation
+    
+    Dim repoWB As Workbook
+    Dim baseWS As Worksheet
+    
+    Dim inWB As Workbook
+    Dim outWB As Workbook
+    Dim outPlanWS As Worksheet
+    
+    Dim headers As Object
+    Dim nextRow As Long
+    Dim nextId As Long
+    Dim rowIndex As Long
+    Dim idValue As Long
+    
+    Dim i As Long
+    Dim planSheetName As String
+    Dim prodSheetName As String
+    
+    Dim totalCol As Long
+    
+    Dim writtenPremiumCLP As Double
+    Dim devolucionesCLP As Double
+    Dim earnedPremiumCLP As Double
+    Dim nepCLP As Double
+    Dim paidClaimsCLP As Double
+    
+    Dim devolPct As Variant
+    Dim lossRatio As Variant
+    Dim valorCliente As Variant
+    
+    Dim commPct As Variant
+    Dim mesesVentaPlan As Variant
+    
+    Dim inflacionTxt As String
+    Dim cutOffRunOffTxt As String
+    Dim fechaCutOffVal As Variant
+    
+    Dim periodicidadTxt As String
+    Dim productTypeTxt As String
+    
+    Dim ventasPlan As Double
+    Dim expuestosPlan As Double
+    Dim duracionMediaMeses As Variant
+    
+    Dim gastosDirectosMonto As Double
+    Dim gastosIndirectosMonto As Double
+    Dim gastosDirectosPct As Variant
+    Dim gastosIndirectosPct As Variant
+    
+    Dim c As Long
+    Dim lastDataCol As Long
+    Dim v As Variant
+    
+    Dim tasaCaida(1 To 144) As Double
+    Dim k As Long
+    Dim tasaColStart As Long
+    
+    On Error GoTo FAIL
+    
+    'Guardamos settings actuales
+    prevScreenUpdating = Application.ScreenUpdating
+    prevEnableEvents = Application.EnableEvents
+    prevDisplayAlerts = Application.DisplayAlerts
+    prevAskToUpdateLinks = Application.AskToUpdateLinks
+    prevCalculation = Application.Calculation
+    
+    'Estabilidad
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.AskToUpdateLinks = False
+    Application.Calculation = xlCalculationManual
+    
+    'Abrimos el repositorio
+    Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
+    Set baseWS = GetWorksheet(repoWB, "Base")
+    
+    'Mapa de headers
+    Set headers = BuildHeaderMap(baseWS, 1)
+    
+    'Nuevo ID y fila libre
+    nextId = NextIdFromHeader(baseWS, headers, "ID_INTERNO", 2)
+    nextRow = NextFreeRowFromHeader(baseWS, headers, "ID_INTERNO", 2)
+    
+    'Input y output de condor
+    Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+    
+    'Iteramos por Plan i
+    i = 1
+    Do
+        planSheetName = "Plan " & CStr(i)
+        prodSheetName = "Product_" & CStr(i)
+        
+        If Not WorksheetExists(outWB, planSheetName) Then Exit Do
+        If Not WorksheetExists(inWB, prodSheetName) Then Exit Do
+        
+        Set outPlanWS = outWB.Worksheets(planSheetName)
+        
+        'Columna Total se busca en fila 17 desde C hacia adelante
+        totalCol = FindTotalCol(outPlanWS, 17, 3)
+        lastDataCol = totalCol - 1
+        
+        'Output por plan (CLP) leyendo desde la columna Total
+        writtenPremiumCLP = CDbl(ValSafe(outPlanWS.Cells(131, totalCol).Value2))
+        devolucionesCLP = CDbl(ValSafe(outPlanWS.Cells(137, totalCol).Value2))
+        
+        nepCLP = CDbl(ValSafe(outPlanWS.Cells(139, totalCol).Value2))
+        earnedPremiumCLP = nepCLP
+        
+        paidClaimsCLP = CDbl(ValSafe(outPlanWS.Cells(174, totalCol).Value2))
+        
+        'Ventas por plan (Total)
+        ventasPlan = CDbl(ValSafe(outPlanWS.Cells(126, totalCol).Value2))
+        
+        'Expuestos por plan (sumatoria de meses, sin incluir la columna Total)
+        expuestosPlan = 0#
+        If lastDataCol >= 3 Then
+            For c = 3 To lastDataCol
+                v = outPlanWS.Cells(288, c).Value2
+                If IsNumeric(v) Then expuestosPlan = expuestosPlan + CDbl(v)
+            Next c
+        End If
+        
+        'Gastos directos e indirectos por plan (monto) y porcentaje sobre NEP
+        gastosDirectosMonto = CDbl(ValSafe(outPlanWS.Cells(191, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(192, totalCol).Value2))
+        gastosIndirectosMonto = CDbl(ValSafe(outPlanWS.Cells(196, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(197, totalCol).Value2))
+        
+        If nepCLP <> 0# Then
+            gastosDirectosPct = gastosDirectosMonto / nepCLP
+            gastosIndirectosPct = gastosIndirectosMonto / nepCLP
+        Else
+            gastosDirectosPct = Empty
+            gastosIndirectosPct = Empty
+        End If
+        
+        'Devoluciones pct (Devoluciones sobre Written premium net of tax)
+        If writtenPremiumCLP <> 0# Then
+            devolPct = devolucionesCLP / writtenPremiumCLP
+        Else
+            devolPct = Empty
+        End If
+        
+        'Siniestralidad por plan (Paid claims sobre NEP)
+        If nepCLP <> 0# Then
+            lossRatio = paidClaimsCLP / nepCLP
+        Else
+            lossRatio = Empty
+        End If
+        
+        'Valor cliente por plan (segun definicion actual, mismo ratio)
+        valorCliente = lossRatio
+        
+        'Duracion media meses (segun definicion actual)
+        If ventasPlan <> 0# Then
+            duracionMediaMeses = expuestosPlan / ventasPlan
+        Else
+            duracionMediaMeses = Empty
+        End If
+        
+        'Input por producto
+        commPct = NormalizePct(ReadCell(inWB, prodSheetName, "C63"))
+        mesesVentaPlan = ReadCell(inWB, prodSheetName, "C9")
+        
+        inflacionTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C14")))
+        cutOffRunOffTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C270")))
+        
+        If StrComp(cutOffRunOffTxt, "Cut-Off", vbTextCompare) = 0 Then
+            fechaCutOffVal = ReadCell(inWB, prodSheetName, "C272")
+        Else
+            fechaCutOffVal = Empty
+        End If
+        
+        periodicidadTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C39")))
+        productTypeTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C49")))
+        
+        'Tasa caida (144 meses) fila 27 desde H
+        tasaColStart = 8
+        For k = 1 To 144
+            tasaCaida(k) = CDbl(ValSafe(inWB.Worksheets(prodSheetName).Cells(27, tasaColStart + (k - 1)).Value2))
+        Next k
+        'TODO exportar tasa caida a la tabla Tasa_Caida del repositorio
+        
+        'Fila destino en Base para este plan
+        rowIndex = nextRow + (i - 1)
+        idValue = nextId + (i - 1)
+        
+        'Escritura en Base
+        WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
+        WriteByHeader baseWS, headers, rowIndex, "CODIGO_TARIFA", p.CodigoTarifa
+        WriteByHeader baseWS, headers, rowIndex, "RUTA", p.CondorOutputPath
+        WriteByHeader baseWS, headers, rowIndex, "ID_BIZAGI", p.IdBizagi
+        WriteByHeader baseWS, headers, rowIndex, "POLIZA", p.Poliza
+        WriteByHeader baseWS, headers, rowIndex, "SOCIO", p.Socio
+        
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TERRITORIAL", p.ValidTerr
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TECNICA", p.ValidTec
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_VALOR_CLIENTE", p.ValidVC
+        
+        WriteByHeader baseWS, headers, rowIndex, "PLAN", planSheetName
+        
+        'TODO prima cliente neta pendiente
+        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", Empty
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+        
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES", commPct
+        WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", mesesVentaPlan
+        
+        WriteByHeader baseWS, headers, rowIndex, "VENTAS", ventasPlan
+        WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", duracionMediaMeses
+        
+        WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", lossRatio
+        WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
+        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
+        
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirectosPct
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndirectosPct
+        
+        WriteByHeader baseWS, headers, rowIndex, "CUT_OFF_RUN_OFF", cutOffRunOffTxt
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_CUT_OFF", fechaCutOffVal
+        WriteByHeader baseWS, headers, rowIndex, "INFLACION", inflacionTxt
+        
+        'Campos que siguen manuales desde formulario
+        WriteByHeader baseWS, headers, rowIndex, "PROFIT_SHARING", p.ProfitSharing
+        WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.PctProfitSharing
+        WriteByHeader baseWS, headers, rowIndex, "REASEGURO", p.Reaseguro
+        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CEDIDA", p.PctPrimaCedida
+        WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_CEDIDO", p.PctSiniestroCedido
+        WriteByHeader baseWS, headers, rowIndex, "FORMULA_SINIESTRALIDAD_APLI", p.AplicaFormulaSiniestralidad
+        
+        WriteByHeader baseWS, headers, rowIndex, "BRIM", p.Brim
+        WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", p.KpiBrim
+        WriteByHeader baseWS, headers, rowIndex, "LIN_INFERIOR", p.LinInf
+        WriteByHeader baseWS, headers, rowIndex, "LIN_SUPERIOR", p.LinSup
+        WriteByHeader baseWS, headers, rowIndex, "MOTIVO_SEGUIMIENTO", p.MotivoSeguimiento
+        WriteByHeader baseWS, headers, rowIndex, "SOLICITA_SEGUIMIENTO", p.SolicitaSeguimiento
+        WriteByHeader baseWS, headers, rowIndex, "PLAN_ACCION_ESCENARIO_POSI", p.PlanAccionPos
+        WriteByHeader baseWS, headers, rowIndex, "PLAN_ACCION_ESCENARIO_NEGA", p.PlanAccionNeg
+        WriteByHeader baseWS, headers, rowIndex, "COMENTARIOS_ADICIONALES_BRI", p.ComentariosAdic
+        
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
+        WriteByHeader baseWS, headers, rowIndex, "OBSERVACION", p.Observacion
+        
+        'Campos utiles para debug (si existen columnas con estos nombres)
+        WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD", periodicidadTxt
+        WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
+        
+        i = i + 1
+    Loop
+    
+    repoWB.Save
+    
+CLEANUP:
+    On Error Resume Next
+    
+    If Not inWB Is Nothing Then inWB.Close SaveChanges:=False
+    If Not outWB Is Nothing Then outWB.Close SaveChanges:=False
+    
+    If closeRepoAfter Then
+        If Not repoWB Is Nothing Then repoWB.Close SaveChanges:=True
+    End If
+    
+    Application.Calculation = prevCalculation
+    Application.AskToUpdateLinks = prevAskToUpdateLinks
+    Application.DisplayAlerts = prevDisplayAlerts
+    Application.EnableEvents = prevEnableEvents
+    Application.ScreenUpdating = prevScreenUpdating
+    
+    Exit Sub
+
+FAIL:
+    MsgBox "Error exportando al Repositorio", vbCritical
+    Resume CLEANUP
+End Sub
+
+
+
+'Guarda datos para exportar un producto al repositorio
+'Evita una funcion con muchas continuaciones de linea
+Public Type tExportParams
+    RepoPath As String
+    CondorInputPath As String
+    CondorOutputPath As String
+    
+    CodigoTarifa As String
+    Poliza As String
+    IdBizagi As String
+    Socio As String
+    ValidTerr As String
+    ValidTec As String
+    ValidVC As String
+    
+    CutOffRunOff As String
+    FechaCutOff As Variant
+    Inflacion As String
+    ProfitSharing As String
+    PctProfitSharing As Variant
+    
+    Reaseguro As String
+    PctPrimaCedida As Variant
+    PctSiniestroCedido As Variant
+    
+    AplicaFormulaSiniestralidad As String
+    
+    Brim As String
+    KpiBrim As String
+    LinInf As String
+    LinSup As String
+    MotivoSeguimiento As String
+    SolicitaSeguimiento As String
+    PlanAccionPos As String
+    PlanAccionNeg As String
+    ComentariosAdic As String
+    
+    Observacion As String
+    
+    Ventas As Variant
+    GastosDirectosPct As Variant
+    GastosIndirectosPct As Variant
+    RetencionPct As Variant
+    MesesVenta As Variant
+    TasaEntrada As Variant
+    DuracionMediaMeses As Variant
+    CuotasPromedio As Variant
+    ValorClientePct As Variant
+    
+    AsistenciaMensual As Variant
+    AsistenciaVenta As Variant
+    CostosMensuales As Variant
+    CostosVenta As Variant
+    OtrosCostosDirectosFijo As Variant
+End Type
+
+
+
+
+
+'Lee campos desde el formulario existente
+Private Function GetParamsFromForm(ByVal frm As Object, ByRef p As tExportParams) As Boolean
+    p.RepoPath = Trim$(CStr(TryGetCtrlValue(frm, "txtRepoPath")))
+    If Len(p.RepoPath) = 0 Then p.RepoPath = PickExcelFile("Selecciona Repositorio")
+    If Len(p.RepoPath) = 0 Then Exit Function
+    
+    p.CondorInputPath = Trim$(CStr(TryGetCtrlValue(frm, "txtCondorInputPath")))
+    If Len(p.CondorInputPath) = 0 Then p.CondorInputPath = PickExcelFile("Selecciona input Condor")
+    If Len(p.CondorInputPath) = 0 Then Exit Function
+    
+    p.CondorOutputPath = Trim$(CStr(TryGetCtrlValue(frm, "txtCondorOutputPath")))
+    If Len(p.CondorOutputPath) = 0 Then p.CondorOutputPath = PickExcelFile("Selecciona output Condor")
+    If Len(p.CondorOutputPath) = 0 Then Exit Function
+    
+    p.CodigoTarifa = Trim$(CStr(TryGetCtrlValue(frm, "txtCodigoTarifa")))
+    p.Poliza = Trim$(CStr(TryGetCtrlValue(frm, "txtPoliza")))
+    p.IdBizagi = Trim$(CStr(TryGetCtrlValue(frm, "txtIdBizagi")))
+    p.Socio = Trim$(CStr(TryGetCtrlValue(frm, "txtSocio")))
+    
+    p.ValidTerr = Trim$(CStr(TryGetCtrlValue(frm, "cmbValidTerr")))
+    p.ValidTec = Trim$(CStr(TryGetCtrlValue(frm, "cmbValidTec")))
+    p.ValidVC = Trim$(CStr(TryGetCtrlValue(frm, "cmbValidVC")))
+    
+    p.CutOffRunOff = Trim$(CStr(TryGetCtrlValue(frm, "cmbCutOffRunOff")))
+    p.FechaCutOff = TryGetCtrlValue(frm, "dtpFechaCutOff")
+    
+    p.Inflacion = BoolToSiNo(TryGetCtrlValue(frm, "chkInflacion"))
+    p.ProfitSharing = BoolToSiNo(TryGetCtrlValue(frm, "chkProfitSharing"))
+    p.PctProfitSharing = EmptyIfBlank(TryGetCtrlValue(frm, "txtPctProfitSharing"))
+    
+    p.Reaseguro = Trim$(CStr(TryGetCtrlValue(frm, "cmbReaseguro")))
+    p.PctPrimaCedida = EmptyIfBlank(TryGetCtrlValue(frm, "txtPctPrimaCedida"))
+    p.PctSiniestroCedido = EmptyIfBlank(TryGetCtrlValue(frm, "txtPctSiniestroCedido"))
+    
+    p.AplicaFormulaSiniestralidad = BoolToSiNo(TryGetCtrlValue(frm, "chkAplicaFormulaSin"))
+    
+    p.Brim = BoolToSiNo(TryGetCtrlValue(frm, "chkBRIM"))
+    p.KpiBrim = Trim$(CStr(TryGetCtrlValue(frm, "txtKPI")))
+    p.LinInf = Trim$(CStr(TryGetCtrlValue(frm, "txtLinInf")))
+    p.LinSup = Trim$(CStr(TryGetCtrlValue(frm, "txtLinSup")))
+    p.MotivoSeguimiento = Trim$(CStr(TryGetCtrlValue(frm, "txtMotivoSeguimiento")))
+    p.SolicitaSeguimiento = Trim$(CStr(TryGetCtrlValue(frm, "txtSolicitaSeguimiento")))
+    p.PlanAccionPos = Trim$(CStr(TryGetCtrlValue(frm, "txtPlanAccionPos")))
+    p.PlanAccionNeg = Trim$(CStr(TryGetCtrlValue(frm, "txtPlanAccionNeg")))
+    p.ComentariosAdic = Trim$(CStr(TryGetCtrlValue(frm, "txtComentariosAdic")))
+    
+    p.Observacion = Trim$(CStr(TryGetCtrlValue(frm, "txtObservacion")))
+    
+    p.CuotasPromedio = EmptyIfBlank(TryGetCtrlValue(frm, "txtCuotasPromedio"))
+    p.GastosDirectosPct = EmptyIfBlank(TryGetCtrlValue(frm, "txtGastosDirectos"))
+    p.GastosIndirectosPct = EmptyIfBlank(TryGetCtrlValue(frm, "txtGastosIndirectos"))
+    
+    p.Ventas = EmptyIfBlank(TryGetCtrlValue(frm, "txtVentas"))
+    p.DuracionMediaMeses = EmptyIfBlank(TryGetCtrlValue(frm, "txtDuracionMedia"))
+    p.TasaEntrada = EmptyIfBlank(TryGetCtrlValue(frm, "txtTasaEntrada"))
+    p.ValorClientePct = EmptyIfBlank(TryGetCtrlValue(frm, "txtValorCliente"))
+    
+    p.AsistenciaMensual = EmptyIfBlank(TryGetCtrlValue(frm, "txtAsistenciaMensual"))
+    p.AsistenciaVenta = EmptyIfBlank(TryGetCtrlValue(frm, "txtAsistenciaVenta"))
+    p.CostosMensuales = EmptyIfBlank(TryGetCtrlValue(frm, "txtCostosMensuales"))
+    p.CostosVenta = EmptyIfBlank(TryGetCtrlValue(frm, "txtCostosVenta"))
+    p.OtrosCostosDirectosFijo = EmptyIfBlank(TryGetCtrlValue(frm, "txtOtrosCostosDirectosFijo"))
+    
+    If Len(p.CodigoTarifa) = 0 Then
+        MsgBox "Falta Codigo Tarifa", vbExclamation
+        Exit Function
+    End If
+    
+    If Len(p.Poliza) = 0 Then
+        MsgBox "Falta Poliza", vbExclamation
+        Exit Function
+    End If
+    
+    GetParamsFromForm = True
+End Function
+
+
+'Convierte boolean a Si No
+Private Function BoolToSiNo(ByVal v As Variant) As String
+    Dim s As String
+    
+    If IsError(v) Or IsEmpty(v) Then Exit Function
+    
+    If VarType(v) = vbBoolean Then
+        BoolToSiNo = IIf(CBool(v), "Si", "No")
+        Exit Function
+    End If
+    
+    If IsNumeric(v) Then
+        BoolToSiNo = IIf(CDbl(v) <> 0, "Si", "No")
+        Exit Function
+    End If
+    
+    s = UCase$(Trim$(CStr(v)))
+    If s = "SI" Or s = "S" Or s = "TRUE" Or s = "1" Or s = "YES" Then
+        BoolToSiNo = "Si"
+    ElseIf s = "NO" Or s = "N" Or s = "FALSE" Or s = "0" Then
+        BoolToSiNo = "No"
+    Else
+        BoolToSiNo = Trim$(CStr(v))
+    End If
+End Function
+
+
+'Encuentra siguiente fila libre
+Private Function NextFreeRowFromHeader(ByVal ws As Worksheet, ByVal headers As Object, _
+                                       ByVal headerName As String, ByVal firstDataRow As Long) As Long
+    Dim col As Long
+    Dim lastRow As Long
+    
+    If headers Is Nothing Then
+        Err.Raise vbObjectError + 702, "NextFreeRowFromHeader", "Headers no inicializado"
+    End If
+    
+    If Not headers.Exists(headerName) Then
+        Err.Raise vbObjectError + 703, "NextFreeRowFromHeader", "No existe el header " & headerName
+    End If
+    
+    col = CLng(headers(headerName))
+    lastRow = ws.Cells(ws.Rows.Count, col).End(xlUp).Row
+    
+    If lastRow < firstDataRow Then
+        NextFreeRowFromHeader = firstDataRow
+    ElseIf Len(Trim$(CStr(ws.Cells(lastRow, col).Value2))) = 0 Then
+        NextFreeRowFromHeader = lastRow
+    Else
+        NextFreeRowFromHeader = lastRow + 1
+    End If
+End Function
+
+
+'Devuelve una hoja si es que existe si no existe devuelve Nothing
+Private Function TryGetWorksheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
+    On Error GoTo EH
+    Set TryGetWorksheet = wb.Worksheets(sheetName)
+    Exit Function
+EH:
+    Set TryGetWorksheet = Nothing
+End Function
+
+
+'Devuelve True si existe la hoja
+Private Function WorksheetExists(ByVal wb As Workbook, ByVal sheetName As String) As Boolean
+    WorksheetExists = Not (TryGetWorksheet(wb, sheetName) Is Nothing)
+End Function
+
+
+'Devuelve una lista con los nombres de hojas Plan 1 Plan 2 etc
+'Se recorre i desde 1 y se corta cuando no exista la hoja
+'Se usa TryGetWorksheet para evitar errores por hoja inexistente
+Private Function GetPlanNames(ByVal wb As Workbook) As Collection
+    Dim plans As Collection
+    Dim i As Long
+    Dim shName As String
+    
+    Set plans = New Collection
+    
+    i = 1
+    Do
+        shName = "Plan " & CStr(i)
+        If TryGetWorksheet(wb, shName) Is Nothing Then Exit Do
+        plans.Add shName
+        i = i + 1
+    Loop
+    
+    Set GetPlanNames = plans
+End Function

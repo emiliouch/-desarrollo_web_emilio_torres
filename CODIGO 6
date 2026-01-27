@@ -1,1 +1,397 @@
+Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boolean)
+    Dim prevScreenUpdating As Boolean
+    Dim prevEnableEvents As Boolean
+    Dim prevDisplayAlerts As Boolean
+    Dim prevAskToUpdateLinks As Boolean
+    Dim prevCalculation As XlCalculation
+    
+    Dim repoWB As Workbook
+    Dim baseWS As Worksheet
+    
+    Dim inWB As Workbook
+    Dim outWB As Workbook
+    Dim outPlanWS As Worksheet
+    
+    Dim headers As Object
+    Dim nextRow As Long
+    Dim nextId As Long
+    
+    Dim colId As Long
+    Dim colTarifa As Long
+    Dim colPlan As Long
+    Dim lastBaseRow As Long
+    Dim r As Long
+    
+    Dim idx As Object
+    Dim key As String
+    Dim tarifaBase As String
+    Dim planBase As String
+    Dim idBase As Long
+    Dim arr As Variant
+    
+    Dim newCount As Long
+    Dim loopIndex As Long
+    
+    Dim planSheetName As String
+    Dim planLabel As String
+    Dim prodSheetName As String
+    Dim hasProd As Boolean
+    
+    Dim rowIndex As Long
+    Dim idValue As Long
+    
+    Dim totalCol As Long
+    
+    Dim gwpCLP As Double
+    Dim writtenNetTaxCLP As Double
+    Dim devolucionesCLP As Double
+    Dim nepCLP As Double
+    Dim paidClaimsCLP As Double
+    Dim comisionesMontoCLP As Double
+    
+    Dim ventasPlan As Double
+    Dim expuestosPlan As Double
+    Dim lastColRow288 As Long
+    Dim c As Long
+    Dim v As Variant
+    
+    Dim devolPct As Variant
+    Dim valorCliente As Variant
+    Dim lossRatio As Variant
+    Dim denomLR As Double
+    
+    Dim permanenciaPlan As Variant
+    Dim duracionMediaMeses As Variant
+    Dim primaClienteNetaCalc As Variant
+    
+    Dim ivaEfectivo As Variant
+    Dim ivaRecuperable As Variant
+    
+    Dim gastosDirectosMonto As Double
+    Dim gastosIndirectosMonto As Double
+    Dim gastosDirectosPct As Variant
+    Dim gastosIndirectosPct As Variant
+    
+    Dim comisionesPctInput As Variant
+    Dim mesesVentaPlan As Variant
+    Dim inflacionTxt As String
+    Dim cutOffRunOffTxt As String
+    Dim fechaCutOffVal As Variant
+    Dim periodicidadTxt As String
+    Dim productTypeTxt As String
+    
+    Dim tasaCaida(1 To 144) As Double
+    Dim k As Long
+    Dim tasaColStart As Long
+    
+    On Error GoTo FAIL
+    
+    'Guardamos settings actuales
+    prevScreenUpdating = Application.ScreenUpdating
+    prevEnableEvents = Application.EnableEvents
+    prevDisplayAlerts = Application.DisplayAlerts
+    prevAskToUpdateLinks = Application.AskToUpdateLinks
+    prevCalculation = Application.Calculation
+    
+    'Estabilidad
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.AskToUpdateLinks = False
+    Application.Calculation = xlCalculationManual
+    
+    'Abrimos el repositorio
+    Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
+    Set baseWS = GetWorksheet(repoWB, "Base")
+    
+    'Mapa de headers
+    Set headers = BuildHeaderMap(baseWS, 1)
+    
+    If Not headers.Exists("ID_INTERNO") Then Err.Raise vbObjectError + 3001, "ExportarCore", "Falta header ID_INTERNO"
+    If Not headers.Exists("CODIGO_TARIFA") Then Err.Raise vbObjectError + 3002, "ExportarCore", "Falta header CODIGO_TARIFA"
+    If Not headers.Exists("PLAN") Then Err.Raise vbObjectError + 3003, "ExportarCore", "Falta header PLAN"
+    
+    colId = CLng(headers("ID_INTERNO"))
+    colTarifa = CLng(headers("CODIGO_TARIFA"))
+    colPlan = CLng(headers("PLAN"))
+    
+    'Nuevo ID y fila libre
+    nextId = NextIdFromHeader(baseWS, headers, "ID_INTERNO", 2)
+    nextRow = NextFreeRowFromHeader(baseWS, headers, "ID_INTERNO", 2)
+    
+    'Indice para reemplazo por CODIGO_TARIFA y PLAN
+    Set idx = CreateObject("Scripting.Dictionary")
+    idx.CompareMode = 1
+    
+    lastBaseRow = baseWS.Cells(baseWS.Rows.Count, colTarifa).End(xlUp).Row
+    If lastBaseRow < 2 Then lastBaseRow = 1
+    
+    For r = 2 To lastBaseRow
+        tarifaBase = Trim$(CStr(baseWS.Cells(r, colTarifa).Value2))
+        If Len(tarifaBase) > 0 Then
+            If StrComp(tarifaBase, p.CodigoTarifa, vbTextCompare) = 0 Then
+                planBase = Trim$(CStr(baseWS.Cells(r, colPlan).Value2))
+                idBase = CLng(ValSafe(baseWS.Cells(r, colId).Value2))
+                key = UCase$(tarifaBase) & "|" & UCase$(planBase)
+                If Not idx.Exists(key) Then
+                    idx.Add key, Array(r, idBase)
+                End If
+            End If
+        End If
+    Next r
+    
+    'Input y output de condor
+    Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+    
+    newCount = 0
+    
+    'loopIndex 0 procesa consolidado
+    loopIndex = 0
+    Do
+        If loopIndex = 0 Then
+            planSheetName = "???"
+            planLabel = "Consolidado"
+            prodSheetName = vbNullString
+            hasProd = False
+            
+            If Not WorksheetExists(outWB, planSheetName) Then
+                Err.Raise vbObjectError + 3101, "ExportarCore", "No existe hoja consolidado en output con nombre ???"
+            End If
+        Else
+            planSheetName = "Plan " & CStr(loopIndex)
+            planLabel = planSheetName
+            prodSheetName = "Product_" & CStr(loopIndex)
+            
+            If Not WorksheetExists(outWB, planSheetName) Then Exit Do
+            If Not WorksheetExists(inWB, prodSheetName) Then Exit Do
+            
+            hasProd = True
+        End If
+        
+        Set outPlanWS = outWB.Worksheets(planSheetName)
+        
+        'Columna Total se busca en fila 17 desde C
+        totalCol = FindTotalCol(outPlanWS, 17, 3)
+        
+        'Output por plan y consolidado en CLP
+        gwpCLP = CDbl(ValSafe(outPlanWS.Cells(131, totalCol).Value2))
+        writtenNetTaxCLP = CDbl(ValSafe(outPlanWS.Cells(132, totalCol).Value2))
+        devolucionesCLP = CDbl(ValSafe(outPlanWS.Cells(137, totalCol).Value2))
+        nepCLP = CDbl(ValSafe(outPlanWS.Cells(139, totalCol).Value2))
+        paidClaimsCLP = CDbl(ValSafe(outPlanWS.Cells(174, totalCol).Value2))
+        comisionesMontoCLP = CDbl(ValSafe(outPlanWS.Cells(163, totalCol).Value2))
+        
+        ventasPlan = CDbl(ValSafe(outPlanWS.Cells(126, totalCol).Value2))
+        
+        'Expuestos sumatoria fila 288 ignorando columna Total
+        expuestosPlan = 0#
+        lastColRow288 = outPlanWS.Cells(288, outPlanWS.Columns.Count).End(xlToLeft).Column
+        If lastColRow288 < 3 Then lastColRow288 = 3
+        
+        For c = 3 To lastColRow288
+            If c <> totalCol Then
+                v = outPlanWS.Cells(288, c).Value2
+                If IsNumeric(v) Then expuestosPlan = expuestosPlan + CDbl(v)
+            End If
+        Next c
+        
+        'Devoluciones pct
+        If writtenNetTaxCLP <> 0# Then
+            devolPct = devolucionesCLP / writtenNetTaxCLP
+        Else
+            devolPct = Empty
+        End If
+        
+        'Valor cliente
+        If nepCLP <> 0# Then
+            valorCliente = paidClaimsCLP / nepCLP
+        Else
+            valorCliente = Empty
+        End If
+        
+        'Siniestralidad lossRatio
+        denomLR = nepCLP - comisionesMontoCLP
+        If denomLR <> 0# Then
+            lossRatio = paidClaimsCLP / denomLR
+        Else
+            lossRatio = Empty
+        End If
+        
+        'Permanencia y duracion media meses
+        If ventasPlan <> 0# Then
+            permanenciaPlan = expuestosPlan / ventasPlan
+            duracionMediaMeses = permanenciaPlan
+        Else
+            permanenciaPlan = Empty
+            duracionMediaMeses = Empty
+        End If
+        
+        'IVA efectivo y recuperable usando prima bruta y neta
+        If writtenNetTaxCLP <> 0# Then
+            ivaEfectivo = (gwpCLP - writtenNetTaxCLP) / writtenNetTaxCLP
+            ivaRecuperable = 0.19 - CDbl(ivaEfectivo)
+        Else
+            ivaEfectivo = Empty
+            ivaRecuperable = Empty
+        End If
+        
+        'Gastos directos e indirectos sobre NEP
+        gastosDirectosMonto = CDbl(ValSafe(outPlanWS.Cells(191, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(192, totalCol).Value2))
+        gastosIndirectosMonto = CDbl(ValSafe(outPlanWS.Cells(196, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(197, totalCol).Value2))
+        
+        If nepCLP <> 0# Then
+            gastosDirectosPct = gastosDirectosMonto / nepCLP
+            gastosIndirectosPct = gastosIndirectosMonto / nepCLP
+        Else
+            gastosDirectosPct = Empty
+            gastosIndirectosPct = Empty
+        End If
+        
+        'Input por producto cuando existe
+        comisionesPctInput = Empty
+        mesesVentaPlan = Empty
+        inflacionTxt = vbNullString
+        cutOffRunOffTxt = vbNullString
+        fechaCutOffVal = Empty
+        periodicidadTxt = vbNullString
+        productTypeTxt = vbNullString
+        
+        If hasProd Then
+            comisionesPctInput = NormalizePct(ReadCell(inWB, prodSheetName, "C63"))
+            mesesVentaPlan = ReadCell(inWB, prodSheetName, "C9")
+            
+            inflacionTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C14")))
+            cutOffRunOffTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C270")))
+            
+            If StrComp(cutOffRunOffTxt, "Cut-Off", vbTextCompare) = 0 Then
+                fechaCutOffVal = ReadCell(inWB, prodSheetName, "C272")
+            Else
+                fechaCutOffVal = Empty
+            End If
+            
+            periodicidadTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C39")))
+            productTypeTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C49")))
+            
+            'Tasa caida 144 meses fila 27 desde H
+            tasaColStart = 8
+            For k = 1 To 144
+                tasaCaida(k) = CDbl(ValSafe(inWB.Worksheets(prodSheetName).Cells(27, tasaColStart + (k - 1)).Value2))
+            Next k
+        End If
+        
+        'Prima cliente neta segun periodicidad
+        primaClienteNetaCalc = Empty
+        If Len(periodicidadTxt) > 0 Then
+            If InStr(1, LCase$(periodicidadTxt), "mens", vbTextCompare) > 0 Or InStr(1, LCase$(periodicidadTxt), "month", vbTextCompare) > 0 Then
+                If expuestosPlan <> 0# Then primaClienteNetaCalc = gwpCLP / expuestosPlan
+            ElseIf InStr(1, LCase$(periodicidadTxt), "unic", vbTextCompare) > 0 Or InStr(1, LCase$(periodicidadTxt), "single", vbTextCompare) > 0 Then
+                If ventasPlan <> 0# Then primaClienteNetaCalc = gwpCLP / ventasPlan
+            End If
+        End If
+        
+        'Resolvemos si se reemplaza o se agrega
+        key = UCase$(Trim$(p.CodigoTarifa)) & "|" & UCase$(Trim$(planLabel))
+        
+        If idx.Exists(key) Then
+            arr = idx(key)
+            rowIndex = CLng(arr(0))
+            idValue = CLng(arr(1))
+        Else
+            rowIndex = nextRow + newCount
+            idValue = nextId + newCount
+            newCount = newCount + 1
+        End If
+        
+        'Escritura en Base
+        WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
+        WriteByHeader baseWS, headers, rowIndex, "CODIGO_TARIFA", p.CodigoTarifa
+        WriteByHeader baseWS, headers, rowIndex, "PLAN", planLabel
+        WriteByHeader baseWS, headers, rowIndex, "RUTA", p.CondorOutputPath
+        
+        WriteByHeader baseWS, headers, rowIndex, "ID_BIZAGI", p.IdBizagi
+        WriteByHeader baseWS, headers, rowIndex, "POLIZA", p.Poliza
+        WriteByHeader baseWS, headers, rowIndex, "SOCIO", p.Socio
+        
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TERRITORIAL", p.ValidTerr
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TECNICA", p.ValidTec
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_VALOR_CLIENTE", p.ValidVC
+        
+        WriteByHeader baseWS, headers, rowIndex, "VENTAS", ventasPlan
+        WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", mesesVentaPlan
+        
+        WriteByHeader baseWS, headers, rowIndex, "GWP", gwpCLP
+        WriteByHeader baseWS, headers, rowIndex, "WRITTEN_PREMIUM_NET_TAX", writtenNetTaxCLP
+        WriteByHeader baseWS, headers, rowIndex, "NEP", nepCLP
+        WriteByHeader baseWS, headers, rowIndex, "CARGA_SINIESTROS", paidClaimsCLP
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES_MONTO", comisionesMontoCLP
+        
+        'COMISIONES en Base es porcentual
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES", Empty
+        
+        WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", lossRatio
+        WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
+        
+        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
+        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES_MONTO", devolucionesCLP
+        
+        WriteByHeader baseWS, headers, rowIndex, "EXPUESTOS", expuestosPlan
+        WriteByHeader baseWS, headers, rowIndex, "PERMANENCIA", permanenciaPlan
+        WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", duracionMediaMeses
+        
+        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNetaCalc
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+        
+        WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
+        WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRecuperable
+        
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirectosPct
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndirectosPct
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS_MONTO", gastosDirectosMonto
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS_MONTO", gastosIndirectosMonto
+        
+        WriteByHeader baseWS, headers, rowIndex, "INFLACION", inflacionTxt
+        WriteByHeader baseWS, headers, rowIndex, "CUT_OFF_RUN_OFF", cutOffRunOffTxt
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_CUT_OFF", fechaCutOffVal
+        
+        WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD", periodicidadTxt
+        WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
+        
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES_PCT_INPUT_C63", comisionesPctInput
+        
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
+        WriteByHeader baseWS, headers, rowIndex, "OBSERVACION", p.Observacion
+        
+        'Siguiente iteracion
+        If loopIndex = 0 Then
+            loopIndex = 1
+        Else
+            loopIndex = loopIndex + 1
+        End If
+    Loop
+    
+    repoWB.Save
+    
+CLEANUP:
+    On Error Resume Next
+    
+    If Not inWB Is Nothing Then inWB.Close SaveChanges:=False
+    If Not outWB Is Nothing Then outWB.Close SaveChanges:=False
+    
+    If closeRepoAfter Then
+        If Not repoWB Is Nothing Then repoWB.Close SaveChanges:=False
+    End If
+    
+    Application.Calculation = prevCalculation
+    Application.AskToUpdateLinks = prevAskToUpdateLinks
+    Application.DisplayAlerts = prevDisplayAlerts
+    Application.EnableEvents = prevEnableEvents
+    Application.ScreenUpdating = prevScreenUpdating
+    
+    Exit Sub
+    
+FAIL:
+    MsgBox "Error exportando al Repositorio", vbCritical
+    Resume CLEANUP
+End Sub
 

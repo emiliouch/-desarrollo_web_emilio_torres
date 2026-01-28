@@ -1,0 +1,498 @@
+Private Sub ExportarCore(ByRef p As tExportParams, ByVal closeRepoAfter As Boolean)
+    'Exporta parámetros al Repositorio:
+    ' - Procesa un consolidado (hoja "???") y luego todos los planes existentes (Plan 1..N, con huecos permitidos).
+    ' - Si CODIGO_TARIFA + PLAN ya existe en Base, reemplaza esa fila.
+    ' - Si ya existían planes para esa tarifa y ahora no vienen, los marca como Eliminado (sin borrarlos).
+    ' - Consolidado nunca se marca ni elimina.
+
+    Dim prevScreenUpdating As Boolean
+    Dim prevEnableEvents As Boolean
+    Dim prevDisplayAlerts As Boolean
+    Dim prevAskToUpdateLinks As Boolean
+    Dim prevCalculation As XlCalculation
+
+    Dim repoWB As Workbook
+    Dim baseWS As Worksheet
+
+    Dim inWB As Workbook
+    Dim outWB As Workbook
+    Dim outPlanWS As Worksheet
+
+    Dim headers As Object
+    Dim nextRow As Long
+    Dim nextId As Long
+
+    Dim colId As Long
+    Dim colTarifa As Long
+    Dim colPlan As Long
+    Dim colEstadoPlan As Long
+    Dim colFechaEstadoPlan As Long
+    Dim lastBaseRow As Long
+    Dim r As Long
+
+    Dim idx As Object          'Indice: (tarifa|plan) -> Array(rowIndex, idInterno)
+    Dim seen As Object         'Vistos en esta corrida: (tarifa|plan) -> True
+
+    Dim key As String
+    Dim tarifaBase As String
+    Dim planBase As String
+    Dim idBase As Long
+    Dim arr As Variant
+
+    Dim newCount As Long
+    Dim loopIndex As Long
+
+    Dim planSheetName As String
+    Dim planLabel As String
+    Dim prodSheetName As String
+    Dim hasProd As Boolean
+
+    Dim rowIndex As Long
+    Dim idValue As Long
+
+    Dim totalCol As Long
+
+    Dim gwpCLP As Double
+    Dim writtenNetTaxCLP As Double
+    Dim devolucionesCLP As Double
+    Dim nepCLP As Double
+    Dim paidClaimsCLP As Double
+    Dim comisionesMontoCLP As Double
+
+    Dim ventasPlan As Double
+    Dim expuestosPlan As Double
+    Dim lastColRow288 As Long
+    Dim c As Long
+    Dim v As Variant
+
+    Dim devolPct As Variant
+    Dim valorCliente As Variant
+    Dim lossRatio As Variant
+    Dim denomLR As Double
+
+    Dim permanenciaPlan As Variant
+    Dim duracionMediaMeses As Variant
+    Dim primaClienteNetaCalc As Variant
+
+    Dim ivaEfectivo As Variant
+    Dim ivaRecuperable As Variant
+
+    Dim gastosDirectosMonto As Double
+    Dim gastosIndirectosMonto As Double
+    Dim gastosDirectosPct As Variant
+    Dim gastosIndirectosPct As Variant
+
+    Dim comisionesPctInput As Variant
+    Dim mesesVentaPlan As Variant
+    Dim inflacionTxt As String
+    Dim cutOffRunOffTxt As String
+    Dim fechaCutOffVal As Variant
+    Dim periodicidadTxt As String
+    Dim productTypeTxt As String
+
+    Dim tasaCaida(1 To 144) As Double
+    Dim k As Long
+    Dim tasaColStart As Long
+
+    On Error GoTo FAIL
+
+    'Guardamos settings actuales
+    prevScreenUpdating = Application.ScreenUpdating
+    prevEnableEvents = Application.EnableEvents
+    prevDisplayAlerts = Application.DisplayAlerts
+    prevAskToUpdateLinks = Application.AskToUpdateLinks
+    prevCalculation = Application.Calculation
+
+    'Estabilidad: evita parpadeo, eventos y recálculo durante la exportación
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.AskToUpdateLinks = False
+    Application.Calculation = xlCalculationManual
+
+    'Abrimos el repositorio
+    Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
+    Set baseWS = GetWorksheet(repoWB, "Base")
+
+    'Mapa de headers (header -> columna)
+    Set headers = BuildHeaderMap(baseWS, 1)
+
+    'Validaciones mínimas
+    If Not headers.Exists("ID_INTERNO") Then Err.Raise vbObjectError + 3001, "ExportarCore", "Falta header ID_INTERNO"
+    If Not headers.Exists("CODIGO_TARIFA") Then Err.Raise vbObjectError + 3002, "ExportarCore", "Falta header CODIGO_TARIFA"
+    If Not headers.Exists("PLAN") Then Err.Raise vbObjectError + 3003, "ExportarCore", "Falta header PLAN"
+    If Not headers.Exists("ESTADO_PLAN") Then Err.Raise vbObjectError + 3004, "ExportarCore", "Falta header ESTADO_PLAN"
+    If Not headers.Exists("FECHA_ESTADO_PLAN") Then Err.Raise vbObjectError + 3005, "ExportarCore", "Falta header FECHA_ESTADO_PLAN"
+
+    colId = CLng(headers("ID_INTERNO"))
+    colTarifa = CLng(headers("CODIGO_TARIFA"))
+    colPlan = CLng(headers("PLAN"))
+    colEstadoPlan = CLng(headers("ESTADO_PLAN"))
+    colFechaEstadoPlan = CLng(headers("FECHA_ESTADO_PLAN"))
+
+    'Nuevo ID y fila libre (para inserciones)
+    nextId = NextIdFromHeader(baseWS, headers, "ID_INTERNO", 2)
+    nextRow = NextFreeRowFromHeader(baseWS, headers, "ID_INTERNO", 2)
+
+    'Indice para reemplazo por CODIGO_TARIFA y PLAN:
+    ' - Solo indexa filas existentes de la tarifa actual (p.CodigoTarifa)
+    Set idx = CreateObject("Scripting.Dictionary")
+    idx.CompareMode = 1
+
+    'Diccionario de "planes vistos" en esta corrida (sirve para marcar eliminados al final)
+    Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = 1
+
+    lastBaseRow = baseWS.Cells(baseWS.Rows.Count, colTarifa).End(xlUp).Row
+    If lastBaseRow < 2 Then lastBaseRow = 1
+
+    For r = 2 To lastBaseRow
+        tarifaBase = Trim$(CStr(baseWS.Cells(r, colTarifa).Value2))
+        If Len(tarifaBase) > 0 Then
+            If StrComp(tarifaBase, p.CodigoTarifa, vbTextCompare) = 0 Then
+                planBase = Trim$(CStr(baseWS.Cells(r, colPlan).Value2))
+                idBase = CLng(ValSafe(baseWS.Cells(r, colId).Value2))
+                key = UCase$(tarifaBase) & "|" & UCase$(planBase)
+                If Not idx.Exists(key) Then
+                    idx.Add key, Array(r, idBase)
+                End If
+            End If
+        End If
+    Next r
+
+    'Abrimos input y output de condor
+    Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+
+    newCount = 0
+
+    'Iteración:
+    ' - loopIndex = 0 procesa consolidado ("???") y NO participa del marcado de estado.
+    ' - loopIndex >= 1 procesa Plan i, permitiendo huecos (si falta Plan 2 pero existe Plan 3, no se corta).
+    loopIndex = 0
+    Do
+        If loopIndex = 0 Then
+            'Consolidado: siempre se procesa si existe.
+            planSheetName = "???"
+            planLabel = "Consolidado"
+            prodSheetName = vbNullString
+            hasProd = False
+
+            If Not WorksheetExists(outWB, planSheetName) Then
+                Err.Raise vbObjectError + 3101, "ExportarCore", "No existe hoja consolidado en output con nombre ???"
+            End If
+        Else
+            planSheetName = "Plan " & CStr(loopIndex)
+            planLabel = planSheetName
+            prodSheetName = "Product_" & CStr(loopIndex)
+
+            'Si no existe el plan en output, NO cortamos: saltamos al siguiente i (permite Plan 1 y Plan 3).
+            If Not WorksheetExists(outWB, planSheetName) Then
+                loopIndex = loopIndex + 1
+                'Corte "suave": si ya saltamos demasiados planes sin encontrar nada, podrías cortar.
+                'Por ahora, asumimos que los planes son relativamente consecutivos y que el primer faltante no implica fin.
+                If loopIndex > 200 Then Exit Do
+                GoTo NEXT_ITERATION
+            End If
+
+            'Product_i puede no existir; en ese caso procesamos solo lo que venga del output.
+            hasProd = WorksheetExists(inWB, prodSheetName)
+        End If
+
+        Set outPlanWS = outWB.Worksheets(planSheetName)
+
+        'Encuentra columna "Total" en fila 17 desde columna C
+        totalCol = FindTotalCol(outPlanWS, 17, 3)
+
+        'Lecturas desde output (todo en CLP, columna Total)
+        ' - GWP: fila 131 (gross of tax)
+        ' - Written net of tax: fila 132
+        ' - Devoluciones: fila 137
+        ' - NEP: fila 139
+        ' - Paid claims: fila 174
+        ' - Comisiones (monto): fila 163
+        ' - Ventas: fila 126
+        gwpCLP = CDbl(ValSafe(outPlanWS.Cells(131, totalCol).Value2))
+        writtenNetTaxCLP = CDbl(ValSafe(outPlanWS.Cells(132, totalCol).Value2))
+        devolucionesCLP = CDbl(ValSafe(outPlanWS.Cells(137, totalCol).Value2))
+        nepCLP = CDbl(ValSafe(outPlanWS.Cells(139, totalCol).Value2))
+        paidClaimsCLP = CDbl(ValSafe(outPlanWS.Cells(174, totalCol).Value2))
+        comisionesMontoCLP = CDbl(ValSafe(outPlanWS.Cells(163, totalCol).Value2))
+        ventasPlan = CDbl(ValSafe(outPlanWS.Cells(126, totalCol).Value2))
+
+        'Expuestos: sumatoria completa de fila 288, NO se limita por Total y NO se usa fallback.
+        expuestosPlan = 0#
+        lastColRow288 = outPlanWS.Cells(288, outPlanWS.Columns.Count).End(xlToLeft).Column
+        If lastColRow288 < 3 Then lastColRow288 = 3
+
+        For c = 3 To lastColRow288
+            v = outPlanWS.Cells(288, c).Value2
+            If IsNumeric(v) Then expuestosPlan = expuestosPlan + CDbl(v)
+        Next c
+
+        'Devoluciones pct = devoluciones / written net of tax
+        If writtenNetTaxCLP <> 0# Then
+            devolPct = devolucionesCLP / writtenNetTaxCLP
+        Else
+            devolPct = Empty
+        End If
+
+        'Valor cliente = paid claims / NEP
+        If nepCLP <> 0# Then
+            valorCliente = paidClaimsCLP / nepCLP
+        Else
+            valorCliente = Empty
+        End If
+
+        'Siniestralidad (lossRatio) = paid claims / (NEP - comisionesMonto)
+        denomLR = nepCLP - comisionesMontoCLP
+        If denomLR <> 0# Then
+            lossRatio = paidClaimsCLP / denomLR
+        Else
+            lossRatio = Empty
+        End If
+
+        'Permanencia = expuestos / ventas
+        If ventasPlan <> 0# Then
+            permanenciaPlan = expuestosPlan / ventasPlan
+        Else
+            permanenciaPlan = Empty
+        End If
+
+        'Duración media meses y prima cliente neta dependen de periodicidad.
+        'Si no tenemos periodicidad (consolidado o falta Product_i), quedan en Empty.
+        duracionMediaMeses = Empty
+        primaClienteNetaCalc = Empty
+
+        'IVA efectivo y recuperable usando prima bruta y neta:
+        'IVA_EFECTIVO = (GWP - WRITTEN_NET_TAX) / WRITTEN_NET_TAX
+        'IVA_RECUPERABLE = 0.19 - IVA_EFECTIVO
+        If writtenNetTaxCLP <> 0# Then
+            ivaEfectivo = (gwpCLP - writtenNetTaxCLP) / writtenNetTaxCLP
+            ivaRecuperable = 0.19 - CDbl(ivaEfectivo)
+        Else
+            ivaEfectivo = Empty
+            ivaRecuperable = Empty
+        End If
+
+        'Gastos directos e indirectos (monto) y % sobre NEP
+        gastosDirectosMonto = CDbl(ValSafe(outPlanWS.Cells(191, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(192, totalCol).Value2))
+        gastosIndirectosMonto = CDbl(ValSafe(outPlanWS.Cells(196, totalCol).Value2)) + CDbl(ValSafe(outPlanWS.Cells(197, totalCol).Value2))
+
+        If nepCLP <> 0# Then
+            gastosDirectosPct = gastosDirectosMonto / nepCLP
+            gastosIndirectosPct = gastosIndirectosMonto / nepCLP
+        Else
+            gastosDirectosPct = Empty
+            gastosIndirectosPct = Empty
+        End If
+
+        'Campos desde input Product_i (si existe)
+        comisionesPctInput = Empty
+        mesesVentaPlan = Empty
+        inflacionTxt = vbNullString
+        cutOffRunOffTxt = vbNullString
+        fechaCutOffVal = Empty
+        periodicidadTxt = vbNullString
+        productTypeTxt = vbNullString
+
+        If hasProd Then
+            'COMISIONES (input C63): ojo, esto no es lo mismo que el % comisiones final del repositorio
+            comisionesPctInput = NormalizePct(ReadCell(inWB, prodSheetName, "C63"))
+
+            'MESES DE VENTA (C9)
+            mesesVentaPlan = ReadCell(inWB, prodSheetName, "C9")
+
+            'INFLACION (C14) directo como texto
+            inflacionTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C14")))
+
+            'CUT_OFF_RUN_OFF (C270)
+            cutOffRunOffTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C270")))
+
+            'FECHA_CUT_OFF (C272) solo si Cut-Off
+            If StrComp(cutOffRunOffTxt, "Cut-Off", vbTextCompare) = 0 Then
+                fechaCutOffVal = ReadCell(inWB, prodSheetName, "C272")
+            Else
+                fechaCutOffVal = Empty
+            End If
+
+            'PERIODICIDAD (C39)
+            periodicidadTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C39")))
+
+            'Product Type (C49)
+            productTypeTxt = Trim$(CStr(ReadCell(inWB, prodSheetName, "C49")))
+
+            'TASA_CAIDA: fila 27 desde H por 144 meses (H..EP)
+            tasaColStart = 8
+            For k = 1 To 144
+                tasaCaida(k) = CDbl(ValSafe(inWB.Worksheets(prodSheetName).Cells(27, tasaColStart + (k - 1)).Value2))
+            Next k
+
+            'Duración media y prima cliente neta según periodicidad (heurística textual)
+            If Len(periodicidadTxt) > 0 Then
+                'Mensual / Monthly
+                If InStr(1, LCase$(periodicidadTxt), "mens") > 0 Or InStr(1, LCase$(periodicidadTxt), "month") > 0 Then
+                    'Duración media (mensual) = expuestos / ventas  (según tu regla actual)
+                    If ventasPlan <> 0# Then duracionMediaMeses = expuestosPlan / ventasPlan
+                    'Prima cliente neta (mensual) = GWP / expuestos
+                    If expuestosPlan <> 0# Then primaClienteNetaCalc = gwpCLP / expuestosPlan
+
+                'Única / Single
+                ElseIf InStr(1, LCase$(periodicidadTxt), "unic") > 0 Or InStr(1, LCase$(periodicidadTxt), "single") > 0 Then
+                    'Duración media (única) = expuestos / ventas
+                    If ventasPlan <> 0# Then duracionMediaMeses = expuestosPlan / ventasPlan
+                    'Prima cliente neta (única) = GWP / ventas
+                    If ventasPlan <> 0# Then primaClienteNetaCalc = gwpCLP / ventasPlan
+                End If
+            End If
+        End If
+
+        'Resolvemos si se reemplaza o se agrega:
+        ' - key = CODIGO_TARIFA|PLAN
+        key = UCase$(Trim$(p.CodigoTarifa)) & "|" & UCase$(Trim$(planLabel))
+
+        If idx.Exists(key) Then
+            'Reemplazo
+            arr = idx(key)
+            rowIndex = CLng(arr(0))
+            idValue = CLng(arr(1))
+        Else
+            'Inserción
+            rowIndex = nextRow + newCount
+            idValue = nextId + newCount
+            newCount = newCount + 1
+        End If
+
+        'Marcar como visto SOLO si NO es consolidado (consolidado nunca se marca ni elimina)
+        If loopIndex <> 0 Then
+            If Not seen.Exists(key) Then seen.Add key, True
+        End If
+
+        'Escritura en Base (mismo set de celdas tanto para reemplazo como inserción)
+        WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
+        WriteByHeader baseWS, headers, rowIndex, "CODIGO_TARIFA", p.CodigoTarifa
+        WriteByHeader baseWS, headers, rowIndex, "PLAN", planLabel
+        WriteByHeader baseWS, headers, rowIndex, "RUTA", p.CondorOutputPath
+
+        WriteByHeader baseWS, headers, rowIndex, "ID_BIZAGI", p.IdBizagi
+        WriteByHeader baseWS, headers, rowIndex, "POLIZA", p.Poliza
+        WriteByHeader baseWS, headers, rowIndex, "SOCIO", p.Socio
+
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TERRITORIAL", p.ValidTerr
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_TECNICA", p.ValidTec
+        WriteByHeader baseWS, headers, rowIndex, "VALIDACION_VALOR_CLIENTE", p.ValidVC
+
+        WriteByHeader baseWS, headers, rowIndex, "VENTAS", ventasPlan
+        WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", mesesVentaPlan
+
+        WriteByHeader baseWS, headers, rowIndex, "GWP", gwpCLP
+        WriteByHeader baseWS, headers, rowIndex, "WRITTEN_PREMIUM_NET_TAX", writtenNetTaxCLP
+        WriteByHeader baseWS, headers, rowIndex, "NEP", nepCLP
+        WriteByHeader baseWS, headers, rowIndex, "CARGA_SINIESTROS", paidClaimsCLP
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES_MONTO", comisionesMontoCLP
+
+        'COMISIONES en Base es porcentual y está pendiente (no confundir con comisionesMontoCLP)
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES", Empty
+
+        WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", lossRatio
+        WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
+
+        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
+        WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES_MONTO", devolucionesCLP
+
+        WriteByHeader baseWS, headers, rowIndex, "EXPUESTOS", expuestosPlan
+        WriteByHeader baseWS, headers, rowIndex, "PERMANENCIA", permanenciaPlan
+        WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", duracionMediaMeses
+
+        WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNetaCalc
+        WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+
+        WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
+        WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRecuperable
+
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirectosPct
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndirectosPct
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS_MONTO", gastosDirectosMonto
+        WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS_MONTO", gastosIndirectosMonto
+
+        WriteByHeader baseWS, headers, rowIndex, "INFLACION", inflacionTxt
+        WriteByHeader baseWS, headers, rowIndex, "CUT_OFF_RUN_OFF", cutOffRunOffTxt
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_CUT_OFF", fechaCutOffVal
+
+        WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD", periodicidadTxt
+        WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
+
+        WriteByHeader baseWS, headers, rowIndex, "COMISIONES_PCT_INPUT_C63", comisionesPctInput
+
+        WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
+        WriteByHeader baseWS, headers, rowIndex, "OBSERVACION", p.Observacion
+
+        'Estado del plan:
+        ' - Consolidado NO se marca.
+        ' - Planes procesados se marcan como Vigente (con fecha).
+        If loopIndex <> 0 Then
+            WriteByHeader baseWS, headers, rowIndex, "ESTADO_PLAN", "Vigente"
+            WriteByHeader baseWS, headers, rowIndex, "FECHA_ESTADO_PLAN", Date
+        End If
+
+NEXT_ITERATION:
+        'Siguiente iteración
+        If loopIndex = 0 Then
+            loopIndex = 1
+        Else
+            loopIndex = loopIndex + 1
+            If loopIndex > 200 Then Exit Do
+        End If
+    Loop
+
+    'Marcado de planes eliminados:
+    ' - Recorre todos los planes que existían antes en Base para esta tarifa (idx).
+    ' - Si NO fueron vistos en esta corrida (seen), marcar como Eliminado.
+    ' - Consolidado NO se marca ni elimina aunque existiera en idx.
+    Dim idxKey As Variant
+    Dim idxRow As Long
+    Dim idxPlan As String
+
+    For Each idxKey In idx.Keys
+        arr = idx(idxKey)
+        idxRow = CLng(arr(0))
+
+        'Extrae el plan desde la key "TARIFA|PLAN"
+        idxPlan = vbNullString
+        If InStr(1, CStr(idxKey), "|") > 0 Then
+            idxPlan = Mid$(CStr(idxKey), InStr(1, CStr(idxKey), "|") + 1)
+        End If
+
+        'Nunca tocar consolidado
+        If StrComp(idxPlan, UCase$("Consolidado"), vbTextCompare) <> 0 Then
+            If Not seen.Exists(CStr(idxKey)) Then
+                baseWS.Cells(idxRow, colEstadoPlan).Value2 = "Eliminado"
+                baseWS.Cells(idxRow, colFechaEstadoPlan).Value2 = Date
+            End If
+        End If
+    Next idxKey
+
+    repoWB.Save
+
+CLEANUP:
+    On Error Resume Next
+
+    If Not inWB Is Nothing Then inWB.Close SaveChanges:=False
+    If Not outWB Is Nothing Then outWB.Close SaveChanges:=False
+
+    If closeRepoAfter Then
+        If Not repoWB Is Nothing Then repoWB.Close SaveChanges:=False
+    End If
+
+    Application.Calculation = prevCalculation
+    Application.AskToUpdateLinks = prevAskToUpdateLinks
+    Application.DisplayAlerts = prevDisplayAlerts
+    Application.EnableEvents = prevEnableEvents
+    Application.ScreenUpdating = prevScreenUpdating
+
+    Exit Sub
+
+FAIL:
+    MsgBox "Error exportando al Repositorio", vbCritical
+    Resume CLEANUP
+End Sub

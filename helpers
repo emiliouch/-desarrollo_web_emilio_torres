@@ -1,0 +1,75 @@
+'Elimina todas las filas (desde firstDataRow) donde ID_INTERNO = idValue
+Private Sub DeleteRowsById(ByVal ws As Worksheet, ByVal headers As Object, _
+                           ByVal headerId As String, ByVal idValue As Long, _
+                           ByVal firstDataRow As Long)
+    Dim colId As Long
+    Dim lastRow As Long
+    Dim r As Long
+    
+    If Not headers.Exists(headerId) Then
+        Err.Raise vbObjectError + 4101, "DeleteRowsById", _
+            "Falta header " & headerId & " en hoja " & ws.Name
+    End If
+    
+    colId = CLng(headers(headerId))
+    lastRow = ws.Cells(ws.Rows.Count, colId).End(xlUp).Row
+    If lastRow < firstDataRow Then Exit Sub
+    
+    For r = lastRow To firstDataRow Step -1
+        If CLng(ValSafe(ws.Cells(r, colId).Value2)) = idValue Then
+            ws.Rows(r).Delete
+        End If
+    Next r
+End Sub
+
+
+'Upsert de Tasa_Caida: borra lo anterior para el ID y pega 144 filas nuevas
+Private Sub UpsertTasaCaida(ByVal repoWB As Workbook, ByVal idPoliza As Long, _
+                            ByRef tasaCaida() As Double)
+    Dim ws As Worksheet
+    Dim headers As Object
+    Dim nextRow As Long
+    Dim k As Long
+    
+    Set ws = GetWorksheet(repoWB, "Tasa_Caida")
+    Set headers = BuildHeaderMap(ws, 1)
+    
+    'Borramos historial previo de este ID para evitar duplicados
+    DeleteRowsById ws, headers, "ID_INTERNO", idPoliza, 2
+    
+    nextRow = NextFreeRowFromHeader(ws, headers, "ID_INTERNO", 2)
+    
+    For k = 1 To 144
+        WriteByHeader ws, headers, nextRow, "ID_INTERNO", idPoliza
+        WriteByHeader ws, headers, nextRow, "PERIODO", k
+        WriteByHeader ws, headers, nextRow, "TRAMO", Empty     'TODO
+        WriteByHeader ws, headers, nextRow, "TASA", tasaCaida(k)
+        nextRow = nextRow + 1
+    Next k
+End Sub
+
+
+'Upsert de Permanencia: borra lo anterior para el ID y pega 144 filas nuevas (solo mensual por ahora)
+Private Sub UpsertPermanencia(ByVal repoWB As Workbook, ByVal idPoliza As Long, _
+                              ByRef permanencia() As Double)
+    Dim ws As Worksheet
+    Dim headers As Object
+    Dim nextRow As Long
+    Dim k As Long
+    
+    Set ws = GetWorksheet(repoWB, "Permanencia")
+    Set headers = BuildHeaderMap(ws, 1)
+    
+    'Borramos historial previo de este ID para evitar duplicados
+    DeleteRowsById ws, headers, "ID_INTERNO", idPoliza, 2
+    
+    nextRow = NextFreeRowFromHeader(ws, headers, "ID_INTERNO", 2)
+    
+    For k = 1 To 144
+        WriteByHeader ws, headers, nextRow, "ID_INTERNO", idPoliza
+        WriteByHeader ws, headers, nextRow, "MES", k
+        WriteByHeader ws, headers, nextRow, "VALOR", permanencia(k)
+        WriteByHeader ws, headers, nextRow, "TIPO", Empty      'TODO
+        nextRow = nextRow + 1
+    Next k
+End Sub

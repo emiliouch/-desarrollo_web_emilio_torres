@@ -1,0 +1,343 @@
+Option Explicit
+
+'========================
+' Config
+'========================
+Private Const BP_SHEET_NAME As String = "BP Mensual"
+Private Const RESUMEN_SHEET_NAME As String = "Resumen Consolidado"
+
+Private Const ROW_START As Long = 6
+Private Const ROW_END As Long = 68
+
+Private Const SRC_COL As String = "KR"      'columna origen en hijo
+Private Const DST_START_COL As Long = 3     'C = 3 en el madre
+
+'========================
+' Public (asignar a botón)
+'========================
+Public Sub ActualizarMatrizKR()
+    Dim wbMaster As Workbook
+    Dim prevCalc As XlCalculation
+    Dim stage As String
+
+    On Error GoTo CleanFail
+
+    Set wbMaster = ActiveWorkbook
+
+    prevCalc = Application.Calculation
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.Calculation = xlCalculationManual
+
+    stage = "Validar hojas en el madre"
+    If Not WorksheetExists(wbMaster, BP_SHEET_NAME) Then
+        Err.Raise vbObjectError + 4001, "ActualizarMatrizKR", _
+                  "No existe la hoja '" & BP_SHEET_NAME & "' en " & wbMaster.Name
+    End If
+    If Not WorksheetExists(wbMaster, RESUMEN_SHEET_NAME) Then
+        Err.Raise vbObjectError + 4002, "ActualizarMatrizKR", _
+                  "No existe la hoja '" & RESUMEN_SHEET_NAME & "' en " & wbMaster.Name
+    End If
+
+    stage = "Leer filas omitidas desde Resumen Consolidado"
+    Dim omitDict As Object
+    Set omitDict = GetOmitRowsDict(wbMaster.Worksheets(RESUMEN_SHEET_NAME))
+
+    stage = "Obtener carpeta del madre"
+    Dim folderPath As String
+    folderPath = GetPlansFolderPath(wbMaster)
+
+    stage = "Listar y ordenar archivos (excluye madre)"
+    Dim files As Variant
+    files = ListExcelFilesInFolder(folderPath, wbMaster.FullName)
+    If IsEmpty(files) Then GoTo CleanOk
+
+    SortFileListNatural files
+
+    stage = "Escribir vínculos KR6:KR68 por columnas (C en adelante)"
+    WriteKRMatrixLinks wbMaster, wbMaster.Worksheets(BP_SHEET_NAME), files, omitDict
+
+CleanOk:
+    Application.Calculation = prevCalc
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    Exit Sub
+
+CleanFail:
+    Application.Calculation = prevCalc
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+
+    MsgBox "Error etapa: " & stage & vbCrLf & _
+           "N°: " & Err.Number & vbCrLf & _
+           "Desc: " & Err.Description, vbCritical, "ActualizarMatrizKR"
+End Sub
+
+'========================
+' Funciones auxiliares
+'========================
+
+Private Sub WriteKRMatrixLinks(ByVal wbMaster As Workbook, ByVal wsDst As Worksheet, _
+                               ByVal files As Variant, ByVal omitDict As Object)
+    Dim i As Long, r As Long
+    Dim destCol As Long
+    Dim targetCell As Range
+    Dim srcAddr As String
+
+    For i = LBound(files) To UBound(files)
+        destCol = DST_START_COL + (i - LBound(files)) '1er archivo -> C
+
+        For r = ROW_START To ROW_END
+            If omitDict.Exists(CStr(r)) Then
+                'NO tocar nada en esta fila
+            Else
+                srcAddr = SRC_COL & CStr(r) 'KR6, KR7, ...
+                Set targetCell = wsDst.Cells(r, destCol)
+                'Vínculo directo (no suma): ='<ruta\[archivo]BP Mensual'!KR6
+                targetCell.FormulaLocal = "=" & ExternalRef(CStr(files(i)), BP_SHEET_NAME, srcAddr)
+            End If
+        Next r
+    Next i
+End Sub
+
+'Lee filas omitidas desde "Resumen Consolidado"
+'Reglas:
+' 1) Si existe un Named Range "FILAS_OMITIR", lo usa.
+' 2) Si en la fila 1 encuentra un encabezado tipo "FILAS_OMITIR" o "OMITIR", usa esa columna.
+' 3) Si no, usa la columna A desde la fila 1 hacia abajo y toma todos los números que encuentre.
+Private Function GetOmitRowsDict(ByVal ws As Worksheet) As Object
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = 1 'TextCompare
+
+    Dim rng As Range
+
+    '1) Named range opcional
+    On Error Resume Next
+    Set rng = ws.Parent.Names("FILAS_OMITIR").RefersToRange
+    On Error GoTo 0
+    If Not rng Is Nothing Then
+        AddNumbersFromRange dict, rng
+        Set GetOmitRowsDict = dict
+        Exit Function
+    End If
+
+    '2) Buscar header en fila 1
+    Dim lastCol As Long, c As Long
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+
+    Dim headerCol As Long: headerCol = 0
+    Dim h As String
+
+    For c = 1 To lastCol
+        h = UCase$(Trim$(CStr(ws.Cells(1, c).Value)))
+        If h = "FILAS_OMITIR" Or h = "FILA_OMITIR" Or h = "OMITIR" Or h = "OMITIDAS" Then
+            headerCol = c
+            Exit For
+        End If
+    Next c
+
+    If headerCol <> 0 Then
+        Set rng = ws.Range(ws.Cells(2, headerCol), ws.Cells(ws.Rows.Count, headerCol).End(xlUp))
+        AddNumbersFromRange dict, rng
+        Set GetOmitRowsDict = dict
+        Exit Function
+    End If
+
+    '3) Fallback: columna A completa (números)
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastRow < 1 Then lastRow = 1
+
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, 1))
+    AddNumbersFromRange dict, rng
+
+    Set GetOmitRowsDict = dict
+End Function
+
+Private Sub AddNumbersFromRange(ByVal dict As Object, ByVal rng As Range)
+    Dim cell As Range, v As Variant
+    For Each cell In rng.Cells
+        v = cell.Value
+        If IsNumeric(v) Then
+            If CLng(v) <> 0 Then dict(CStr(CLng(v))) = True
+        End If
+    Next cell
+End Sub
+
+Private Function WorksheetExists(ByVal wb As Workbook, ByVal sheetName As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = wb.Worksheets(sheetName)
+    On Error GoTo 0
+    WorksheetExists = Not ws Is Nothing
+End Function
+
+Private Function GetPlansFolderPath(ByVal wbMaster As Workbook) As String
+    Dim p As String
+    p = wbMaster.Path
+    If Len(p) = 0 Then
+        Err.Raise vbObjectError + 4101, "GetPlansFolderPath", _
+                  "El archivo madre debe estar guardado (Path vacío)."
+    End If
+    If Right$(p, 1) <> "\" Then p = p & "\"
+    GetPlansFolderPath = p
+End Function
+
+Private Function ListExcelFilesInFolder(ByVal folderPath As String, ByVal excludeFullName As String) As Variant
+    Dim f As String, full As String
+    Dim col As Collection
+    Set col = New Collection
+
+    If Right$(folderPath, 1) <> "\" Then folderPath = folderPath & "\"
+
+    f = Dir(folderPath & "*.xls*")
+    Do While Len(f) > 0
+        If Left$(f, 2) <> "~$" Then
+            full = folderPath & f
+            If StrComp(full, excludeFullName, vbTextCompare) <> 0 Then
+                col.Add full
+            End If
+        End If
+        f = Dir()
+    Loop
+
+    If col.Count = 0 Then Exit Function
+
+    Dim arr() As String
+    ReDim arr(0 To col.Count - 1) As String
+
+    Dim i As Long
+    For i = 1 To col.Count
+        arr(i - 1) = CStr(col(i))
+    Next i
+
+    ListExcelFilesInFolder = arr
+End Function
+
+'Devuelve: '<ruta\[Archivo.xlsm]BP Mensual'!KR6
+Private Function ExternalRef(ByVal fullName As String, ByVal sheetName As String, ByVal cellA1 As String) As String
+    Dim folderPath As String, fileName As String
+    folderPath = GetFolderFromFullName(fullName)
+    fileName = GetFileFromFullName(fullName)
+
+    ExternalRef = "'" & EscapeApostrophes(folderPath) & "[" & EscapeApostrophes(fileName) & "]" & _
+                  EscapeApostrophes(sheetName) & "'!" & cellA1
+End Function
+
+Private Function GetFolderFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 4201, "GetFolderFromFullName", "Ruta inválida: " & fullName
+    GetFolderFromFullName = Left$(fullName, p)
+End Function
+
+Private Function GetFileFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 4202, "GetFileFromFullName", "Ruta inválida: " & fullName
+    GetFileFromFullName = Mid$(fullName, p + 1)
+End Function
+
+Private Function EscapeApostrophes(ByVal s As String) As String
+    EscapeApostrophes = Replace(s, "'", "''")
+End Function
+
+'--------------------------
+' Orden natural: 1 antes que 2, y alfabético case-insensitive
+'--------------------------
+Private Sub SortFileListNatural(ByRef files As Variant)
+    Dim i As Long, j As Long
+    Dim tmp As String
+
+    For i = LBound(files) To UBound(files) - 1
+        For j = i + 1 To UBound(files)
+            If NaturalCompare(CStr(files(i)), CStr(files(j))) > 0 Then
+                tmp = CStr(files(i))
+                files(i) = files(j)
+                files(j) = tmp
+            End If
+        Next j
+    Next i
+End Sub
+
+'Retorna: -1 si a<b, 0 si igual, +1 si a>b
+Private Function NaturalCompare(ByVal a As String, ByVal b As String) As Long
+    Dim sa As String, sb As String
+    sa = LCase$(GetFileFromFullName(a))
+    sb = LCase$(GetFileFromFullName(b))
+
+    Dim ia As Long, ib As Long
+    ia = 1: ib = 1
+
+    Dim ca As String, cb As String
+    Dim na As String, nb As String
+    Dim da As Long, db As Long
+
+    Do While ia <= Len(sa) And ib <= Len(sb)
+        ca = Mid$(sa, ia, 1)
+        cb = Mid$(sb, ib, 1)
+
+        If IsDigit(ca) And IsDigit(cb) Then
+            na = ReadNumberToken(sa, ia)
+            nb = ReadNumberToken(sb, ib)
+
+            da = CLng(na)
+            db = CLng(nb)
+
+            If da < db Then NaturalCompare = -1: Exit Function
+            If da > db Then NaturalCompare = 1: Exit Function
+        Else
+            If ca < cb Then NaturalCompare = -1: Exit Function
+            If ca > cb Then NaturalCompare = 1: Exit Function
+            ia = ia + 1
+            ib = ib + 1
+        End If
+    Loop
+
+    If Len(sa) < Len(sb) Then NaturalCompare = -1 ElseIf Len(sa) > Len(sb) Then NaturalCompare = 1 Else NaturalCompare = 0
+End Function
+
+Private Function IsDigit(ByVal ch As String) As Boolean
+    IsDigit = (ch >= "0" And ch <= "9")
+End Function
+
+'Lee número desde posición actual; avanza el índice al primer no-dígito.
+Private Function ReadNumberToken(ByVal s As String, ByRef idx As Long) As String
+    Dim startIdx As Long
+    startIdx = idx
+    Do While idx <= Len(s)
+        If Not IsDigit(Mid$(s, idx, 1)) Then Exit Do
+        idx = idx + 1
+    Loop
+    ReadNumberToken = Mid$(s, startIdx, idx - startIdx)
+End Function
+
+
+Option Explicit
+
+'Un solo botón para correr ambos procesos
+Public Sub ActualizarTodo_BP()
+    Application.EnableEvents = False
+    On Error GoTo CleanFail
+
+    '1) Sumas vinculadas en C6:KP68 (la macro anterior)
+    ActualizarBP
+
+    '2) Matriz KR por columnas (la macro nueva)
+    ActualizarMatrizKR
+
+CleanOk:
+    Application.EnableEvents = True
+    Exit Sub
+
+CleanFail:
+    Application.EnableEvents = True
+    Err.Raise Err.Number, "ActualizarTodo_BP", Err.Description
+End Sub
+
+
+

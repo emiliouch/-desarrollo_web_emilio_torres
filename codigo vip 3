@@ -1,0 +1,241 @@
+Option Explicit
+
+'========================
+' Config
+'========================
+Private Const BP_SHEET_NAME As String = "BP Mensual"
+Private Const BP_RANGE_ADDR As String = "C6:KP68"  ' <-- CORREGIDO (antes C26)
+
+'Filas (número de fila Excel) que NO deben tocarse (se saltan)
+Private EMPTY_ROWS As Variant
+
+'========================
+' Public (asignar a botón)
+'========================
+Public Sub ActualizarBP()
+    Dim wbMaster As Workbook
+    Dim prevCalc As XlCalculation
+    Dim stage As String
+
+    On Error GoTo CleanFail
+
+    'Workbook correcto: el activo (si apretas botón desde el madre, calza)
+    Set wbMaster = ActiveWorkbook
+
+    prevCalc = Application.Calculation
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.Calculation = xlCalculationManual
+
+    EMPTY_ROWS = Array(19, 28, 30, 38, 47, 51, 54, 55, 60, 62, 64, 67)
+
+    stage = "Validar hoja '" & BP_SHEET_NAME & "'"
+    If Not WorksheetExists(wbMaster, BP_SHEET_NAME) Then
+        Err.Raise vbObjectError + 3001, "ActualizarBP", _
+                  "No existe la hoja '" & BP_SHEET_NAME & "' en el workbook: " & wbMaster.Name
+    End If
+
+    stage = "Obtener carpeta del madre"
+    Dim folderPath As String
+    folderPath = GetPlansFolderPath(wbMaster) 'misma carpeta del archivo madre
+
+    stage = "Listar archivos de la carpeta"
+    Dim files As Variant
+    files = ListExcelFilesInFolder(folderPath, wbMaster.FullName) 'excluye el madre
+
+    If IsEmpty(files) Then GoTo CleanOk
+
+    stage = "Construir vínculos SUM en rango " & BP_RANGE_ADDR
+    BuildLinkedSumFormulas wbMaster, BP_SHEET_NAME, BP_RANGE_ADDR, files
+
+CleanOk:
+    Application.Calculation = prevCalc
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    Exit Sub
+
+CleanFail:
+    Application.Calculation = prevCalc
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+
+    MsgBox "Error etapa: " & stage & vbCrLf & _
+           "N°: " & Err.Number & vbCrLf & _
+           "Desc: " & Err.Description, vbCritical, "ActualizarBP"
+End Sub
+
+'========================
+' (Opcional) Crear/Recrear botón en BP Mensual
+'========================
+Public Sub RecrearBotonActualizarBP()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(BP_SHEET_NAME)
+
+    Dim shp As Shape
+    Const shpName As String = "btnActualizarBP"
+
+    On Error Resume Next
+    ws.Shapes(shpName).Delete
+    On Error GoTo 0
+
+    Dim anchor As Range
+    Set anchor = ws.Range("B2")
+
+    Set shp = ws.Shapes.AddShape(Type:=msoShapeRoundedRectangle, _
+                                 Left:=anchor.Left, Top:=anchor.Top, _
+                                 Width:=140, Height:=32)
+
+    With shp
+        .Name = shpName
+        .TextFrame2.TextRange.Text = "Actualizar BP"
+        'Clave: calificar con el libro
+        .OnAction = "'" & ThisWorkbook.Name & "'!ActualizarBP"
+        .Placement = xlFreeFloating
+    End With
+End Sub
+
+'========================
+' Funciones auxiliares
+'========================
+
+Private Function WorksheetExists(ByVal wb As Workbook, ByVal sheetName As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = wb.Worksheets(sheetName)
+    On Error GoTo 0
+    WorksheetExists = Not ws Is Nothing
+End Function
+
+Private Function GetPlansFolderPath(ByVal wbMaster As Workbook) As String
+    Dim p As String
+    p = wbMaster.Path
+    If Len(p) = 0 Then
+        Err.Raise vbObjectError + 2001, "GetPlansFolderPath", _
+                  "El archivo madre debe estar guardado (Path vacío)."
+    End If
+    If Right$(p, 1) <> "\" Then p = p & "\"
+    GetPlansFolderPath = p
+End Function
+
+Private Function ListExcelFilesInFolder(ByVal folderPath As String, ByVal excludeFullName As String) As Variant
+    Dim f As String, full As String
+    Dim col As Collection
+    Set col = New Collection
+
+    If Right$(folderPath, 1) <> "\" Then folderPath = folderPath & "\"
+
+    f = Dir(folderPath & "*.xls*")
+    Do While Len(f) > 0
+        If Left$(f, 2) <> "~$" Then
+            full = folderPath & f
+            If StrComp(full, excludeFullName, vbTextCompare) <> 0 Then
+                col.Add full
+            End If
+        End If
+        f = Dir()
+    Loop
+
+    If col.Count = 0 Then Exit Function
+
+    Dim arr() As String
+    ReDim arr(0 To col.Count - 1) As String
+
+    Dim i As Long
+    For i = 1 To col.Count
+        arr(i - 1) = CStr(col(i))
+    Next i
+
+    ListExcelFilesInFolder = arr
+End Function
+
+'Construye fórmulas vinculadas con SUM para cada celda del rango,
+'pero SALTA filas definidas en EMPTY_ROWS (no borra, no cambia nada).
+Private Sub BuildLinkedSumFormulas( _
+    ByVal wbMaster As Workbook, _
+    ByVal masterSheetName As String, _
+    ByVal targetRangeAddr As String, _
+    ByVal srcFiles As Variant _
+)
+    Dim wsM As Worksheet
+    Set wsM = wbMaster.Worksheets(masterSheetName)
+
+    Dim rng As Range
+    Set rng = wsM.Range(targetRangeAddr)
+
+    Dim r As Long, c As Long
+    Dim addrA1 As String
+    Dim excelRow As Long
+
+    For r = 1 To rng.Rows.Count
+        excelRow = rng.Row + r - 1
+
+        'CORREGIDO: si es fila "vacía", se SALTA (no borra)
+        If IsEmptyRowToSkip(excelRow) Then
+            GoTo NextRow
+        End If
+
+        For c = 1 To rng.Columns.Count
+            addrA1 = rng.Cells(r, c).Address(False, False) 'ej: C6
+            rng.Cells(r, c).Formula = BuildExternalSumFormula(srcFiles, BP_SHEET_NAME, addrA1)
+        Next c
+
+NextRow:
+    Next r
+End Sub
+
+Private Function BuildExternalSumFormula( _
+    ByVal srcFiles As Variant, _
+    ByVal srcSheetName As String, _
+    ByVal cellA1 As String _
+) As String
+    Dim i As Long
+    Dim parts() As String
+    ReDim parts(LBound(srcFiles) To UBound(srcFiles)) As String
+
+    For i = LBound(srcFiles) To UBound(srcFiles)
+        parts(i) = ExternalRef(CStr(srcFiles(i)), srcSheetName, cellA1)
+    Next i
+
+    BuildExternalSumFormula = "=SUM(" & Join(parts, ",") & ")"
+End Function
+
+'Devuelve: 'C:\ruta\[Archivo.xlsm]BP Mensual'!C6
+Private Function ExternalRef(ByVal fullName As String, ByVal sheetName As String, ByVal cellA1 As String) As String
+    Dim folderPath As String, fileName As String
+    folderPath = GetFolderFromFullName(fullName)
+    fileName = GetFileFromFullName(fullName)
+
+    ExternalRef = "'" & EscapeApostrophes(folderPath) & "[" & EscapeApostrophes(fileName) & "]" & _
+                  EscapeApostrophes(sheetName) & "'!" & cellA1
+End Function
+
+Private Function GetFolderFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 2101, "GetFolderFromFullName", "Ruta inválida: " & fullName
+    GetFolderFromFullName = Left$(fullName, p)
+End Function
+
+Private Function GetFileFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 2102, "GetFileFromFullName", "Ruta inválida: " & fullName
+    GetFileFromFullName = Mid$(fullName, p + 1)
+End Function
+
+Private Function EscapeApostrophes(ByVal s As String) As String
+    EscapeApostrophes = Replace(s, "'", "''")
+End Function
+
+Private Function IsEmptyRowToSkip(ByVal excelRow As Long) As Boolean
+    Dim i As Long
+    For i = LBound(EMPTY_ROWS) To UBound(EMPTY_ROWS)
+        If excelRow = CLng(EMPTY_ROWS(i)) Then
+            IsEmptyRowToSkip = True
+            Exit Function
+        End If
+    Next i
+End Function

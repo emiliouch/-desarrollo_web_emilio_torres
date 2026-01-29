@@ -1,0 +1,394 @@
+Option Explicit
+
+'========================
+' Config general
+'========================
+Private Const BP_SHEET_NAME As String = "BP Mensual"
+Private Const BP_RANGE_ADDR As String = "C6:KP68"
+
+Private Const RES_SHEET_NAME As String = "Resumen Consolidado"
+Private Const RES_FIRST_COL As Long = 3          'C = 3 (primer archivo se pega en columna C)
+Private Const RES_FIRST_ROW As Long = 6          'empieza en fila 6
+Private Const RES_LAST_ROW As Long = 68          'termina en fila 68
+Private Const RES_SRC_COL_LETTER As String = "KR" 'en el hijo, siempre se toma KR{fila} de BP Mensual
+
+'Filas que NO se tocan (se saltan) por hoja.
+'BP: usa la misma lista con la que ya te funciona.
+Private BP_SKIP_ROWS As Variant
+'Resumen: dijiste que es variable, así que queda independiente.
+Private RES_SKIP_ROWS As Variant
+
+'========================
+' Public (asignar al botón)
+'========================
+Public Sub ActualizarBP()
+    Dim wbMaster As Workbook
+    Dim prevCalc As XlCalculation
+    Dim stage As String
+
+    On Error GoTo CleanFail
+
+    Set wbMaster = ActiveWorkbook
+
+    prevCalc = Application.Calculation
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.Calculation = xlCalculationManual
+
+    '--- filas que se saltan en BP Mensual (hoja 1)
+    BP_SKIP_ROWS = Array(11, 19, 28, 31, 32, 33, 34, 35, 38, 47, 51, 54, 55, 60, 62, 64, 67, 69)
+
+    '--- filas que se saltan en Resumen Consolidado (hoja 2)
+    'Pon aquí la lista correspondiente. Por ahora uso la misma para que partas funcionando.
+    RES_SKIP_ROWS = Array(11, 19, 28, 31, 32, 33, 34, 35, 38, 47, 51, 54, 55, 60, 62, 64, 67, 69)
+
+    stage = "Validar hojas"
+    If Not WorksheetExists(wbMaster, BP_SHEET_NAME) Then
+        Err.Raise vbObjectError + 3001, "ActualizarBP", "No existe la hoja '" & BP_SHEET_NAME & "' en " & wbMaster.Name
+    End If
+    If Not WorksheetExists(wbMaster, RES_SHEET_NAME) Then
+        Err.Raise vbObjectError + 3002, "ActualizarBP", "No existe la hoja '" & RES_SHEET_NAME & "' en " & wbMaster.Name
+    End If
+
+    stage = "Obtener carpeta"
+    Dim folderPath As String
+    folderPath = GetPlansFolderPath(wbMaster) 'misma carpeta del madre
+
+    stage = "Listar y ordenar archivos"
+    Dim files As Variant
+    files = ListExcelFilesInFolder(folderPath, wbMaster.FullName) 'excluye el madre
+    If IsEmpty(files) Then GoTo CleanOk
+
+    SortFilesNatural files 'orden alfabético + numérico (Plan 1 antes que Plan 2)
+
+    '--- 1) Hoja BP Mensual: sumas vinculadas (lo de antes)
+    stage = "Actualizar BP Mensual (sumas vinculadas)"
+    BuildLinkedSumFormulasLocal wbMaster, BP_SHEET_NAME, BP_RANGE_ADDR, files, BP_SKIP_ROWS
+
+    '--- 2) Hoja Resumen Consolidado: columnas por archivo, vínculo directo a KR{fila} de BP Mensual
+    stage = "Actualizar Resumen Consolidado (KR6:KR68 por columnas)"
+    BuildResumenConsolidado wbMaster, RES_SHEET_NAME, files, RES_SKIP_ROWS, RES_FIRST_COL, RES_FIRST_ROW, RES_LAST_ROW, RES_SRC_COL_LETTER
+
+CleanOk:
+    Application.Calculation = prevCalc
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    Exit Sub
+
+CleanFail:
+    Application.Calculation = prevCalc
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+
+    MsgBox "Error etapa: " & stage & vbCrLf & _
+           "N°: " & Err.Number & vbCrLf & _
+           "Desc: " & Err.Description, vbCritical, "ActualizarBP"
+End Sub
+
+'========================
+' (Opcional) Botón
+'========================
+Public Sub RecrearBotonActualizarBP()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(BP_SHEET_NAME)
+
+    Dim shp As Shape
+    Const shpName As String = "btnActualizarBP"
+
+    On Error Resume Next
+    ws.Shapes(shpName).Delete
+    On Error GoTo 0
+
+    Dim anchor As Range
+    Set anchor = ws.Range("B2")
+
+    Set shp = ws.Shapes.AddShape(Type:=msoShapeRoundedRectangle, _
+                                 Left:=anchor.Left, Top:=anchor.Top, _
+                                 Width:=140, Height:=32)
+
+    With shp
+        .Name = shpName
+        .TextFrame2.TextRange.Text = "Actualizar BP"
+        .OnAction = "'" & ThisWorkbook.Name & "'!ActualizarBP"
+        .Placement = xlFreeFloating
+    End With
+End Sub
+
+'========================
+' Funciones auxiliares
+'========================
+
+Private Function WorksheetExists(ByVal wb As Workbook, ByVal sheetName As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = wb.Worksheets(sheetName)
+    On Error GoTo 0
+    WorksheetExists = Not ws Is Nothing
+End Function
+
+'Devuelve la carpeta del archivo madre (si no está guardado, falla)
+Private Function GetPlansFolderPath(ByVal wbMaster As Workbook) As String
+    Dim p As String
+    p = wbMaster.Path
+    If Len(p) = 0 Then
+        Err.Raise vbObjectError + 2001, "GetPlansFolderPath", "El archivo madre debe estar guardado (Path vacío)."
+    End If
+    If Right$(p, 1) <> "\" Then p = p & "\"
+    GetPlansFolderPath = p
+End Function
+
+'Lista todos los Excel de la carpeta, excluyendo el archivo madre y temporales (~$)
+Private Function ListExcelFilesInFolder(ByVal folderPath As String, ByVal excludeFullName As String) As Variant
+    Dim f As String, full As String
+    Dim col As Collection
+    Set col = New Collection
+
+    If Right$(folderPath, 1) <> "\" Then folderPath = folderPath & "\"
+
+    f = Dir(folderPath & "*.xls*")
+    Do While Len(f) > 0
+        If Left$(f, 2) <> "~$" Then
+            full = folderPath & f
+            If StrComp(full, excludeFullName, vbTextCompare) <> 0 Then col.Add full
+        End If
+        f = Dir()
+    Loop
+
+    If col.Count = 0 Then Exit Function
+
+    Dim arr() As String, i As Long
+    ReDim arr(0 To col.Count - 1)
+    For i = 1 To col.Count
+        arr(i - 1) = CStr(col(i))
+    Next i
+
+    ListExcelFilesInFolder = arr
+End Function
+
+'------------------------
+' Parte 1: BP Mensual (sumas vinculadas)
+'------------------------
+'Esto escribe en el madre fórmulas tipo:
+'=SUMA('C:\...\[Plan1.xlsm]BP Mensual'!C6;'C:\...\[Plan2.xlsm]BP Mensual'!C6;...)
+'Usa FormulaLocal + separador del sistema para no romperse en Excel español.
+Private Sub BuildLinkedSumFormulasLocal( _
+    ByVal wbMaster As Workbook, _
+    ByVal masterSheetName As String, _
+    ByVal targetRangeAddr As String, _
+    ByVal srcFiles As Variant, _
+    ByVal skipRows As Variant _
+)
+    Dim wsM As Worksheet
+    Set wsM = wbMaster.Worksheets(masterSheetName)
+
+    Dim rng As Range
+    Set rng = wsM.Range(targetRangeAddr)
+
+    Dim sep As String
+    sep = Application.International(xlListSeparator) 'en español suele ser ";"
+
+    Dim r As Long, c As Long, excelRow As Long
+    Dim addrA1 As String
+
+    For r = 1 To rng.Rows.Count
+        excelRow = rng.Row + r - 1
+        If IsRowInList(excelRow, skipRows) Then GoTo NextRow1
+
+        For c = 1 To rng.Columns.Count
+            addrA1 = rng.Cells(r, c).Address(False, False)
+            rng.Cells(r, c).FormulaLocal = BuildExternalSumFormulaLocal(srcFiles, BP_SHEET_NAME, addrA1, sep)
+        Next c
+
+NextRow1:
+    Next r
+End Sub
+
+Private Function BuildExternalSumFormulaLocal( _
+    ByVal srcFiles As Variant, _
+    ByVal srcSheetName As String, _
+    ByVal cellA1 As String, _
+    ByVal sep As String _
+) As String
+    Dim i As Long
+    Dim parts() As String
+    ReDim parts(LBound(srcFiles) To UBound(srcFiles)) As String
+
+    For i = LBound(srcFiles) To UBound(srcFiles)
+        parts(i) = ExternalRef(CStr(srcFiles(i)), srcSheetName, cellA1)
+    Next i
+
+    BuildExternalSumFormulaLocal = "=SUMA(" & Join(parts, sep) & ")"
+End Function
+
+'------------------------
+' Parte 2: Resumen Consolidado (KR por columnas)
+'------------------------
+'Para el archivo i:
+' - columna = RES_FIRST_COL + i
+' - fila r (6..68): en madre pone vínculo directo a:
+'   'C:\...\[Archivo_i]BP Mensual'!KR{r}
+'
+'Importante: aquí NO sumas. Es 1 vínculo por celda.
+Private Sub BuildResumenConsolidado( _
+    ByVal wbMaster As Workbook, _
+    ByVal resumenSheetName As String, _
+    ByVal srcFiles As Variant, _
+    ByVal skipRows As Variant, _
+    ByVal firstCol As Long, _
+    ByVal firstRow As Long, _
+    ByVal lastRow As Long, _
+    ByVal srcColLetter As String _
+)
+    Dim wsR As Worksheet
+    Set wsR = wbMaster.Worksheets(resumenSheetName)
+
+    Dim i As Long, r As Long
+    Dim dstCol As Long
+    Dim srcCell As String
+
+    For i = LBound(srcFiles) To UBound(srcFiles)
+        dstCol = firstCol + (i - LBound(srcFiles)) 'C para el primero, D para el segundo, etc.
+
+        For r = firstRow To lastRow
+            If IsRowInList(r, skipRows) Then GoTo NextRow2
+
+            srcCell = srcColLetter & CStr(r) 'KR6, KR7, ...
+
+            'Vínculo directo a BP Mensual!KR{r} del archivo hijo i
+            wsR.Cells(r, dstCol).Formula = "=" & ExternalRef(CStr(srcFiles(i)), BP_SHEET_NAME, srcCell)
+
+NextRow2:
+        Next r
+    Next i
+End Sub
+
+'------------------------
+' Referencia externa robusta
+'------------------------
+'Devuelve: 'C:\ruta\[Archivo.xlsm]BP Mensual'!C6
+Private Function ExternalRef(ByVal fullName As String, ByVal sheetName As String, ByVal cellA1 As String) As String
+    Dim folderPath As String, fileName As String
+    folderPath = GetFolderFromFullName(fullName)
+    fileName = GetFileFromFullName(fullName)
+
+    ExternalRef = "'" & EscapeApostrophes(folderPath) & "[" & EscapeApostrophes(fileName) & "]" & _
+                  EscapeApostrophes(sheetName) & "'!" & cellA1
+End Function
+
+Private Function GetFolderFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 2101, "GetFolderFromFullName", "Ruta inválida: " & fullName
+    GetFolderFromFullName = Left$(fullName, p)
+End Function
+
+Private Function GetFileFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 2102, "GetFileFromFullName", "Ruta inválida: " & fullName
+    GetFileFromFullName = Mid$(fullName, p + 1)
+End Function
+
+Private Function EscapeApostrophes(ByVal s As String) As String
+    EscapeApostrophes = Replace(s, "'", "''")
+End Function
+
+'------------------------
+' Saltos de filas
+'------------------------
+Private Function IsRowInList(ByVal excelRow As Long, ByVal rowsList As Variant) As Boolean
+    Dim i As Long
+    For i = LBound(rowsList) To UBound(rowsList)
+        If excelRow = CLng(rowsList(i)) Then
+            IsRowInList = True
+            Exit Function
+        End If
+    Next i
+End Function
+
+'------------------------
+' Orden natural (alfanumérico con números)
+'------------------------
+Private Sub SortFilesNatural(ByRef files As Variant)
+    If IsEmpty(files) Then Exit Sub
+    QuickSortNatural files, LBound(files), UBound(files)
+End Sub
+
+Private Sub QuickSortNatural(ByRef arr As Variant, ByVal lo As Long, ByVal hi As Long)
+    Dim i As Long, j As Long
+    Dim pivot As String, tmp As String
+
+    i = lo: j = hi
+    pivot = arr((lo + hi) \ 2)
+
+    Do While i <= j
+        Do While NaturalCompare(arr(i), pivot) < 0
+            i = i + 1
+        Loop
+        Do While NaturalCompare(arr(j), pivot) > 0
+            j = j - 1
+        Loop
+
+        If i <= j Then
+            tmp = arr(i): arr(i) = arr(j): arr(j) = tmp
+            i = i + 1: j = j - 1
+        End If
+    Loop
+
+    If lo < j Then QuickSortNatural arr, lo, j
+    If i < hi Then QuickSortNatural arr, i, hi
+End Sub
+
+'Comparación “natural”: texto + números.
+'Ej: "Plan 2" > "Plan 10" en texto normal, pero aquí: Plan 2 < Plan 10.
+Private Function NaturalCompare(ByVal a As String, ByVal b As String) As Long
+    Dim i As Long, j As Long
+    Dim ca As String, cb As String
+    Dim na As String, nb As String
+
+    a = LCase$(GetFileFromFullName(a))
+    b = LCase$(GetFileFromFullName(b))
+
+    i = 1: j = 1
+    Do While i <= Len(a) And j <= Len(b)
+        ca = Mid$(a, i, 1)
+        cb = Mid$(b, j, 1)
+
+        If IsDigit(ca) And IsDigit(cb) Then
+            na = ReadNumber(a, i)
+            nb = ReadNumber(b, j)
+
+            If CLng(na) <> CLng(nb) Then
+                NaturalCompare = Sgn(CLng(na) - CLng(nb))
+                Exit Function
+            End If
+        Else
+            If ca <> cb Then
+                NaturalCompare = Sgn(StrComp(ca, cb, vbTextCompare))
+                Exit Function
+            End If
+            i = i + 1
+            j = j + 1
+        End If
+    Loop
+
+    'Si uno es prefijo del otro, el más corto va primero
+    NaturalCompare = Sgn(Len(a) - Len(b))
+End Function
+
+Private Function IsDigit(ByVal ch As String) As Boolean
+    IsDigit = (ch >= "0" And ch <= "9")
+End Function
+
+'Lee un número desde la posición idx y avanza idx al primer no-numérico.
+Private Function ReadNumber(ByVal s As String, ByRef idx As Long) As String
+    Dim startPos As Long
+    startPos = idx
+    Do While idx <= Len(s) And IsDigit(Mid$(s, idx, 1))
+        idx = idx + 1
+    Loop
+    ReadNumber = Mid$(s, startPos, idx - startPos)
+End Function

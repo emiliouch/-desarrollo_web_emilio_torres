@@ -1,0 +1,34 @@
+Private Sub ClearResumenFromColC(ByVal wsRes As Worksheet)
+    Dim lastCol As Long, lastRow As Long
+    Dim f As Range
+
+    'Última columna usada real (en toda la hoja)
+    Set f = wsRes.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                             SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+    If f Is Nothing Then
+        lastCol = RES_FIRST_COL
+    Else
+        lastCol = f.Column
+        If lastCol < RES_FIRST_COL Then lastCol = RES_FIRST_COL
+    End If
+
+    'Última fila usada real (en toda la hoja)
+    Set f = wsRes.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                             SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If f Is Nothing Then
+        lastRow = 1
+    Else
+        lastRow = f.Row
+        If lastRow < 1 Then lastRow = 1
+    End If
+
+    'Limpia contenido desde columna C hasta la última columna usada
+    wsRes.Range(wsRes.Cells(1, RES_FIRST_COL), wsRes.Cells(lastRow, lastCol)).ClearContents
+End Sub
+
+
+
+
+'Forzar cálculo para que Excel no quede con vínculos “pendientes”
+wbMaster.Worksheets(BP_SHEET_NAME).Calculate
+wbMaster.Worksheets(RES_SHEET_NAME).Calculate

@@ -1,0 +1,42 @@
+Private Sub ClearResumenFromColC(ByVal wsRes As Worksheet)
+    Const COL_C As Long = 3
+    Const COL_X As Long = 24
+    Const COL_Y As Long = 25
+
+    Dim lastCol As Long, lastRow As Long
+    Dim f As Range
+
+    'Última columna usada real
+    Set f = wsRes.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                             SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+    If f Is Nothing Then
+        lastCol = COL_C
+    Else
+        lastCol = f.Column
+        If lastCol < COL_C Then lastCol = COL_C
+    End If
+
+    'Última fila usada real
+    Set f = wsRes.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                             SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If f Is Nothing Then
+        lastRow = 1
+    Else
+        lastRow = f.Row
+        If lastRow < 1 Then lastRow = 1
+    End If
+
+    '1) Limpiar C..W (sin tocar X)
+    If lastCol >= COL_C Then
+        Dim endLeft As Long
+        endLeft = Application.Min(lastCol, COL_X - 1) 'W = 23
+        If endLeft >= COL_C Then
+            wsRes.Range(wsRes.Cells(1, COL_C), wsRes.Cells(lastRow, endLeft)).ClearContents
+        End If
+    End If
+
+    '2) Limpiar Y..last (sin tocar X)
+    If lastCol >= COL_Y Then
+        wsRes.Range(wsRes.Cells(1, COL_Y), wsRes.Cells(lastRow, lastCol)).ClearContents
+    End If
+End Sub

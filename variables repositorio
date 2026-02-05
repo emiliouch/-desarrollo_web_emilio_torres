@@ -1,0 +1,287 @@
+Aquí tienes UNA sola lista con todas las variables únicas que el código toma/usa (incluye: las que van al repo, las auxiliares/derivadas, y las de control/ejecución), indicando de dónde sale cada una.
+
+⸻
+
+1) Variables pedidas / recibidas en tExportParams (inputs del proceso)
+
+Rutas / archivos
+	1.	RepoPath — Formulario/param de ejecución (ruta del repositorio).
+	2.	CondorInputPath — Formulario/param de ejecución (ruta BPInputTemplate).
+	3.	CondorOutputPath — Formulario/param de ejecución (ruta Results_BPInputTemplate).
+
+Manual / formulario (se usan para consolidado y planes)
+4. CodigoTarifa — Formulario.
+5. Poliza — Formulario.
+6. CuotasPromedio — Formulario (Variant).
+7. ProfitSharing — Formulario (Variant).
+8. PrimaCedida — Formulario (Variant).
+9. FormulaSiniestralidadAplica — Formulario (Variant).
+10. Brim — Formulario (Variant).
+11. Observacion — Formulario (String).
+12. PlanAccion — Formulario (String).
+
+Flags / campos manuales extra
+13. ProductoCuentaAsistencia — Formulario (Variant).
+14. DescuentoAsistenciaPct — Formulario (Variant).
+15. TieneEcosistema — Formulario (Variant).
+16. CanalTMK — Formulario (Variant).
+17. ROP — Formulario (Variant).
+18. BonificacionROPPct — Formulario (Variant).
+19. VentaPorPlanes — Formulario (Variant).
+20. PolizaEsContinuacion — Formulario (Variant).
+
+Configuración de qué hojas input leer
+21. PlanSheetsRaw — Formulario/param de ejecución (string "X;Y;Z").
+
+⸻
+
+2) Variables leídas desde Condor Input (y guardadas por plan)
+
+Global (una vez para todo)
+22. socioAuto — Condor Input: hoja Global, celda C9 (GLOBAL_SHEET + GLOBAL_ADDR_SOCIO).
+
+Por cada hoja input (X/Y/Z), se lee el nombre del plan y sus inputs
+23. planName — Condor Input: hoja input inputSheetName, celda C4 (IN_ADDR_PLANNAME).
+24. meses_venta — Condor Input: hoja input, C9 (IN_ADDR_MESES_VENTA).
+25. inflacion — Condor Input: hoja input, C14 (IN_ADDR_INFLACION).
+26. periodicidad — Condor Input: hoja input, C39 (IN_ADDR_PERIODICIDAD).
+27. product_type — Condor Input: hoja input, C49 (IN_ADDR_PRODUCT_TYPE).
+28. cut_off_run_off — Condor Input: hoja input, C270 (IN_ADDR_CUTOFF_RUNOFF).
+29. fecha_cut_off — Condor Input: hoja input, C272 solo si cut_off_run_off = "Cut-Off" (IN_ADDR_FECHA_CUTOFF).
+30. loan_duration — Condor Input: hoja input, C35 solo si periodicidad es “prima única/single”; si no, "N/A" (IN_ADDR_LOAN_DURATION).
+
+Tasa caída (por hoja input)
+31. tasa() — Condor Input: fila 27 desde columna C hasta última con contenido (IN_TASA_ROW=27, IN_TASA_COL_START=3), convertido con CDbl(ValSafe(...)).
+32. tasa_n — Derivado desde el input: cantidad de períodos leídos = lastCol - C + 1.
+
+Nota: Internamente esto queda en planInputs(planName) como diccionario con keys: meses_venta, inflacion, periodicidad, product_type, cut_off_run_off, fecha_cut_off, loan_duration, tasa, tasa_n.
+
+⸻
+
+3) Variables leídas desde Condor Output (consolidado y por plan)
+
+Ubicación base
+33. totalCol — Derivado: se busca el header "Total" en la fila 17 desde columna C (FindTotalCol(ws, 17, 3)).
+
+Estructura tMetrics (sale de ReadCondorMetrics)
+34. Ventas (m.Ventas) — Condor Output: ROW_VENTAS=126, columna totalCol.
+35. GWP (m.GWP) — Condor Output: ROW_GWP=131, columna totalCol.
+36. WrittenNetTax (m.WrittenNetTax) — Condor Output: ROW_WRITTEN_NET_TAX=132, columna totalCol.
+37. Devoluciones (m.Devoluciones) — Condor Output: ROW_DEVOLUCIONES=137, columna totalCol.
+38. NEP (m.NEP) — Condor Output: ROW_NEP=139, columna totalCol.
+39. ComisionesMonto (m.ComisionesMonto) — Condor Output: ROW_COMISIONES_MONTO=163, columna totalCol.
+40. Claims (m.Claims) — Condor Output: ROW_CLAIMS=174, columna totalCol.
+41. Expuestos (m.Expuestos) — Condor Output: suma fila ROW_EXPUESTOS=288 desde col C a última no vacía (SumRowFromCToLastNonEmpty).
+42. GastosDirectosMonto (m.GastosDirectosMonto) — Condor Output: fila 191 + 192, columna totalCol.
+43. GastosIndirectosMonto (m.GastosIndirectosMonto) — Condor Output: fila 196 + 197, columna totalCol.
+
+⸻
+
+4) Variables leídas desde BP (archivos en carpeta CondorOutput)
+
+4A) BP “Consolidado” (solo archivo cuyo nombre contiene “consolidado”)
+
+Archivo elegido
+44. consPath — Derivado: FS_FindBestFileByTokenFiltered(files, "consolidado", True) (elige el más “corto” que contenga token y “consolidado”).
+
+Hoja y celdas
+45. vRea — BP Mensual: hoja "BP Mensual", celda KR50 (BP_CONS_REASEGURO_CELL).
+46. reaseguroTxt — Derivado desde vRea: si vRea>0 => "Proporcional", si no => "Sin Reaseguro".
+47. siniestroCedido — BP Mensual: celda KR49 (BP_CONS_SINIESTRO_CEDIDO_CELL).
+48. vAsist — BP Mensual: celda KR39 (BP_CONS_ASIST_CELL).
+49. vNep — BP Mensual: celda KR18 (BP_CONS_NEP_CELL).
+50. ratioAsistSobreNEP — Derivado: vAsist / vNep si vNep<>0, si no Empty.
+
+4B) BP por plan (archivo cuyo nombre contiene planName)
+
+Archivo elegido
+51. planPath — Derivado: FS_FindBestFileByTokenFiltered(files, planName, False).
+
+UF (para CLP)
+52. ufCLP — BP Parametros: se busca label "UF" en columna B (BP_UF_SEARCH_COL=2) y toma el valor de la celda a la derecha (BP_UF_VALUE_OFFSET=1).
+
+Parámetros directos
+53. vI53 — BP Parametros: celda I53 (asistencia mensual en UF).
+54. vM52 — BP Parametros: celda M52 (costo venta en UF).
+55. costoRecaudF55 — BP Parametros: celda F55.
+56. primaNetaC6 — BP Parametros: celda C6.
+57. pctBTG_C14 — BP Parametros: celda C14 (porcentaje BTG).
+
+Derivados en UF y CLP
+58. btgUF — Derivado: primaNetaC6 * pctBTG_C14.
+59. totalUF — Derivado: I53 + F55 + btgUF.
+60. asistMensualCLP — Derivado: I53 * ufCLP.
+61. costosVentaCLP — Derivado: M52 * ufCLP.
+62. costosMensualesCLP — Derivado: totalUF * ufCLP.
+
+Otros parámetros
+63. mesesCarencia — BP Parametros: celda C8.
+
+Listas por riesgo (guardadas como string con “;”)
+64. capitalAsegUF — BP Parametros: rango C29:C43 → RangeToSemicolonList_RAW.
+65. sinMedioUF — BP Parametros: rango D29:D43 → RangeToSemicolonList_RAW.
+66. tasaEntradaRiesgo — BP Parametros: rango E29:E43 → RangeToSemicolonList_RAW.
+
+⸻
+
+5) Variables derivadas (cálculos internos) usadas para escribir al repo
+
+Derivados comunes (consolidado y plan)
+67. comPct — Derivado: m.ComisionesMonto / m.NEP si NEP<>0.
+68. siniestralidad — Derivado: m.Claims / m.NEP si NEP<>0.
+69. devolPct — Derivado: m.Devoluciones / m.WrittenNetTax si WrittenNetTax<>0.
+70. primaClienteNeta — Derivado: CalcPrimaClienteNeta(m.GWP, m.Expuestos, m.Ventas, periodicidad) (en consolidado se fuerza "mensual").
+71. duracion_media — Derivado: CalcDuracionMedia(m.Expuestos, m.Ventas) = expuestos/ventas si ventas≠0.
+72. ivaEfectivo — Derivado: (m.GWP - m.WrittenNetTax) / m.WrittenNetTax si WrittenNetTax<>0.
+73. ivaRec — Derivado: 0.19 - ivaEfectivo (si WrittenNetTax<>0).
+
+Derivados de gastos sobre NEP
+74. gastosDirectosPct / gastosDirPct — Derivado: m.GastosDirectosMonto / m.NEP si NEP<>0.
+75. gastosIndirectosPct / gastosIndPct — Derivado: m.GastosIndirectosMonto / m.NEP si NEP<>0.
+
+Derivados extra consolidado
+76. valorCliente — Derivado: igual a siniestralidad (por diseño del flujo).
+
+⸻
+
+6) Variables que se escriben en Repositorio.Base (headers + fuente)
+
+Esta sección lista cada campo escrito y su fuente en este código (si queda TODO_TEXT también cuenta como “tomada”, porque el script la setea).
+
+Identidad
+77. ID_INTERNO — Derivado repo: nextId (auto incremental).
+78. CODIGO_TARIFA — Formulario: p.CodigoTarifa.
+79. POLIZA — Formulario: p.Poliza.
+80. SOCIO — Condor Input Global: socioAuto (Global!C9).
+81. PLAN — Derivado: "Consolidado" o planName.
+
+Condor Output / derivados
+82. VENTAS — Condor Output: m.Ventas.
+83. PRIMA_CLIENTE_NETA — Derivado: primaClienteNeta.
+84. UNIDAD_PRIMA_CLIENTE_NETA — Constante: "CLP".
+85. COMISIONES — Derivado: comPct.
+86. GASTOS_DIRECTOS — Derivado: gastosDirPct.
+87. GASTOS_INDIRECTOS — Derivado: gastosIndPct.
+88. DURACION_MEDIA_MESES — Derivado: CalcDuracionMedia(...).
+89. SINIESTRALIDAD — Derivado: siniestralidad.
+90. SINIESTRALIDAD_SOBRE_LA_NEP — Derivado: siniestralidad.
+91. DEVOLUCIONES — Derivado: devolPct.
+92. VALOR_CLIENTE — Derivado: siniestralidad.
+
+Condor Input (solo planes; consolidado se deja vacío/no aplica)
+93. MESES_DE_VENTA — Condor Input: meses_venta (consolidado: Empty).
+94. INFLACION — Condor Input: inflacion.
+95. CUT_OFF_RUN_OFF — Condor Input: cut_off_run_off.
+96. FECHA_CUT_OFF — Condor Input: fecha_cut_off (solo si Cut-Off).
+97. PRODUCT_TYPE — Condor Input: product_type.
+98. PERIODICIDAD_(MENSUAL/UNICA) — Condor Input: periodicidad.
+
+BP (planes)
+99. UF — BP Parametros: ufCLP (consolidado: TODO_TEXT).
+100. ASISTENCIA_MENSUAL — BP Parametros: asistMensualCLP (consolidado: TODO_TEXT).
+101. UNIDAD_ASISTENCIA_MENSUAL — Constante: "CLP" (planes) / TODO_TEXT (consolidado).
+102. COSTOS_MENSUALES — BP Parametros: costosMensualesCLP (consolidado: TODO_TEXT).
+103. UNIDAD_COSTOS_MENSUALES — Constante: "CLP" (planes) / TODO_TEXT (consolidado).
+104. COSTOS_VENTA — BP Parametros: costosVentaCLP (consolidado: TODO_TEXT).
+105. UNIDAD_COSTOS_VENTA — Constante: "CLP" (planes) / TODO_TEXT (consolidado).
+106. MESES_GRATIS/CARENCIA — BP Parametros: mesesCarencia (consolidado: TODO_TEXT).
+
+BP (listas por riesgo, planes)
+107. CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO) — BP Parametros: capitalAsegUF (rango C29:C43 → string “;”).
+108. SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO) — BP Parametros: sinMedioUF (rango D29:D43 → string “;”).
+109. TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO) — BP Parametros: tasaEntradaRiesgo (rango E29:E43 → string “;”).
+
+BP (Consolidado)
+110. REASEGURO — BP Mensual Consolidado: reaseguroTxt (planes: TODO_TEXT).
+111. SINIESTRO_CEDIDO — BP Mensual Consolidado: siniestroCedido (planes: TODO_TEXT).
+112. RATIO_DE_ASISTENCIA_SOBRE_LA_NEP — BP Mensual Consolidado: ratioAsistSobreNEP (planes: TODO_TEXT).
+
+IVA y ratios auxiliares
+113. IVA_EFECTIVO — Derivado: ivaEfectivo.
+114. IVA_RECUPERABLE — Derivado: ivaRec.
+115. GASTOS_DIRECTOS_/_NEP — Derivado: gastosDirPct.
+116. GASTOS_INDIRECTOS_/_NEP — Derivado: gastosIndPct.
+
+Manual / Formulario
+117. CUOTAS_PROMEDIO — Formulario: p.CuotasPromedio.
+118. PROFIT_SHARING — Formulario: p.ProfitSharing.
+119. PRIMA_CEDIDA — Formulario: p.PrimaCedida.
+120. FORMULA_SINIESTRALIDAD_APLICA — Formulario: p.FormulaSiniestralidadAplica.
+121. BRIM — Formulario: p.Brim.
+122. OBSERVACIÓN — Formulario: p.Observacion.
+123. PLAN_DE_ACCIÓN — Formulario: p.PlanAccion.
+124. PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO — Formulario: p.ProductoCuentaAsistencia.
+125. %_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS) — Formulario: p.DescuentoAsistenciaPct.
+126. TIENE_ECOSISTEMA_(SI/NO) — Formulario: p.TieneEcosistema.
+127. CANAL_TMK_(SI/NO) — Formulario: p.CanalTMK.
+128. ROP_(SI/NO) — Formulario: p.ROP.
+129. BONIFICACION_ROP_(%) — Formulario: p.BonificacionROPPct.
+130. VENTA_POR_PLANES_(SI/NO) — Formulario: p.VentaPorPlanes.
+131. POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA) — Formulario: p.PolizaEsContinuacion.
+
+Campos que el script setea como “pendiente / sin fuente”
+132. SINIESTRO_MEDIO — Constante: TODO_TEXT.
+133. UNIDAD_SINIESTRO_MEDIO — Constante: consolidado TODO_TEXT; plan "UF".
+134. TASA_DE_ENTRADA — Constante: TODO_TEXT.
+135. ASISTENCIA_VENTA — Constante: TODO_TEXT.
+136. UNIDAD_ASISTENCIA_VENTA — Constante: TODO_TEXT.
+137. OTROS_COSTOS_DIRECTOS_FIJOS — Constante: TODO_TEXT.
+138. UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS — Constante: TODO_TEXT.
+139. PORCENTAJE_PROFIT_SHARING — Constante: TODO_TEXT.
+140. KPI_BRIM — Constante: TODO_TEXT.
+141. %_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA — Constante: TODO_TEXT.
+142. FECHA_FIN_TARIFA — Derivado: Date (fecha del sistema).
+143. PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR) — Constante: TODO_TEXT.
+144. OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR) — Constante: TODO_TEXT.
+145. RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE) — Constante: TODO_TEXT.
+
+⸻
+
+7) Variables que se escriben en Repositorio.Tasa_Caida
+	146.	ID_INTERNO — Derivado: planId (es el idValue del plan en Base).
+	147.	PERIODO — Derivado: índice i desde 1 hasta tasa_n.
+	148.	PLAN — Derivado: planName.
+	149.	TASA — Condor Input: tasa(i) (de fila 27).
+
+⸻
+
+8) Variables de control del proceso (no van al repo, pero se usan)
+
+Estado de Excel
+150. prevScreenUpdating — Excel App state.
+151. prevEnableEvents — Excel App state.
+152. prevDisplayAlerts — Excel App state.
+153. prevAskToUpdateLinks — Excel App state.
+154. prevCalculation — Excel App state.
+
+Workbooks / sheets
+155. repoWB — Workbook abierto con p.RepoPath.
+156. baseWS — Worksheet "Base".
+157. tasaWS — Worksheet "Tasa_Caida".
+158. headers — Derivado: BuildHeaderMap(baseWS, 1).
+159. tasaHeaders — Derivado: BuildHeaderMap(tasaWS, 1).
+160. inWB — Workbook Condor Input.
+161. outWB — Workbook Condor Output.
+
+IDs / filas
+162. nextId — Derivado repo: NextIdFromHeader(...).
+163. nextRow — Derivado repo: NextFreeRow(...).
+164. polizaId — Derivado: retorno de AppendConsolidado (ID del registro consolidado).
+
+Carpeta y BPs
+165. folderPath — Derivado: GetFolderFromFullName(p.CondorOutputPath).
+166. bpFiles — Derivado: FS_ListExcelFilesInFolder(...) (lista de rutas).
+167. inputSheets — Derivado: ParseSemicolonList(p.PlanSheetsRaw).
+168. planInputs — Derivado: diccionario planInputs(planName).
+169. planOrder — Derivado: collection con el orden de planes.
+
+⸻
+
+9) Constantes usadas como “valores” (también influyen en variables)
+	170.	TODO_TEXT — Constante: "TODO" (se escribe en varios headers cuando falta fuente).
+
+⸻
+
+Si quieres que quede aún más “presentable” para tu reunión
+
+Te lo puedo reordenar en un formato “tipo tabla verbal” Variable → Fuente → Aplica a (Consolidado/Plan/Ambos) → Se escribe a (Base/Tasa/Aux), pero con lo que pediste (“una sola lista, únicas, con origen”), esto ya está completo y sin duplicados.

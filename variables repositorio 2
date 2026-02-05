@@ -1,0 +1,117 @@
+Variable,Documento,Hoja,Celda,Manual o automatica
+RepoPath,Repositorio,(ruta archivo),N/A,Manual
+CondorInputPath,Condor Input (BPInputTemplate...),(ruta archivo),N/A,Manual
+CondorOutputPath,Condor Output (Results_BPInputTemplate...),(ruta archivo),N/A,Manual
+CodigoTarifa,Formulario (UserForm),N/A,N/A,Manual
+Poliza,Formulario (UserForm),N/A,N/A,Manual
+CuotasPromedio,Formulario (UserForm),N/A,N/A,Manual
+ProfitSharing,Formulario (UserForm),N/A,N/A,Manual
+PrimaCedida,Formulario (UserForm),N/A,N/A,Manual
+FormulaSiniestralidadAplica,Formulario (UserForm),N/A,N/A,Manual
+Brim,Formulario (UserForm),N/A,N/A,Manual
+Observacion,Formulario (UserForm),N/A,N/A,Manual
+PlanAccion,Formulario (UserForm),N/A,N/A,Manual
+ProductoCuentaAsistencia,Formulario (UserForm),N/A,N/A,Manual
+DescuentoAsistenciaPct,Formulario (UserForm),N/A,N/A,Manual
+TieneEcosistema,Formulario (UserForm),N/A,N/A,Manual
+CanalTMK,Formulario (UserForm),N/A,N/A,Manual
+ROP,Formulario (UserForm),N/A,N/A,Manual
+BonificacionROPPct,Formulario (UserForm),N/A,N/A,Manual
+VentaPorPlanes,Formulario (UserForm),N/A,N/A,Manual
+PolizaEsContinuacion,Formulario (UserForm),N/A,N/A,Manual
+PlanSheetsRaw,Formulario/Param ejecución,N/A,N/A,Manual
+socioAuto,Condor Input (BPInputTemplate...),Global,C9,Automatica
+planName,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C4,Automatica
+meses_venta,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C9,Automatica
+inflacion,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C14,Automatica
+periodicidad,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C39,Automatica
+product_type,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C49,Automatica
+cut_off_run_off,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C270,Automatica
+fecha_cut_off,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C272,Automatica
+loan_duration,Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],C35,Automatica
+tasa(i),Condor Input (BPInputTemplate...),[cada hoja input X/Y/Z],Fila 27 desde C hasta última con contenido,Automatica
+Ventas,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 126 Col 'Total',Automatica
+GWP,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 131 Col 'Total',Automatica
+WrittenNetTax,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 132 Col 'Total',Automatica
+Devoluciones,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 137 Col 'Total',Automatica
+NEP,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 139 Col 'Total',Automatica
+ComisionesMonto,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 163 Col 'Total',Automatica
+Claims,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 174 Col 'Total',Automatica
+Expuestos,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 288 desde C a última con número (suma),Automatica
+GastosDirectosMonto,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 191+192 Col 'Total',Automatica
+GastosIndirectosMonto,Condor Output (Results_BPInputTemplate...),Consolidado: Results_IFRS4_Net / Plan: [hoja plan],Fila 196+197 Col 'Total',Automatica
+vRea (reaseguro UF),BP Consolidado (archivo contiene 'consolidado'),BP Mensual,KR50,Automatica
+reaseguroTxt,BP Consolidado (archivo contiene 'consolidado'),BP Mensual,Derivado de KR50 (>0 Proporcional; 0 Sin Reaseguro),Automatica
+siniestroCedido,BP Consolidado (archivo contiene 'consolidado'),BP Mensual,KR49,Automatica
+vAsist,BP Consolidado (archivo contiene 'consolidado'),BP Mensual,KR39,Automatica
+vNep,BP Consolidado (archivo contiene 'consolidado'),BP Mensual,KR18,Automatica
+ratioAsistSobreNEP,BP Consolidado (archivo contiene 'consolidado'),BP Mensual,Derivado: KR39/KR18,Automatica
+ufCLP,BP por Plan (archivo match planName),Parametros,Label 'UF' en col B (toma celda a la derecha),Automatica
+vI53 (asistencia UF),BP por Plan (archivo match planName),Parametros,I53,Automatica
+vM52 (costo venta UF),BP por Plan (archivo match planName),Parametros,M52,Automatica
+costoRecaudF55,BP por Plan (archivo match planName),Parametros,F55,Automatica
+primaNetaC6,BP por Plan (archivo match planName),Parametros,C6,Automatica
+pctBTG_C14,BP por Plan (archivo match planName),Parametros,C14,Automatica
+asistMensualCLP,BP por Plan (archivo match planName),Parametros,Derivado: I53*UF,Automatica
+costosVentaCLP,BP por Plan (archivo match planName),Parametros,Derivado: M52*UF,Automatica
+costosMensualesCLP,BP por Plan (archivo match planName),Parametros,Derivado: (I53+F55+(C6*C14))*UF,Automatica
+mesesCarencia,BP por Plan (archivo match planName),Parametros,C8,Automatica
+capitalAsegUF,BP por Plan (archivo match planName),Parametros,C29:C43 (lista ';'),Automatica
+sinMedioUF,BP por Plan (archivo match planName),Parametros,D29:D43 (lista ';'),Automatica
+tasaEntradaRiesgo,BP por Plan (archivo match planName),Parametros,E29:E43 (lista ';'),Automatica
+ID_INTERNO,Repositorio,Base,[col header ID_INTERNO / fila append],Automatica
+PLAN,Repositorio,Base,[col header PLAN / fila append],Automatica
+SOCIO,Repositorio,Base,[col header SOCIO / fila append],Automatica
+CODIGO_TARIFA,Repositorio,Base,[col header CODIGO_TARIFA / fila append],Manual
+POLIZA,Repositorio,Base,[col header POLIZA / fila append],Manual
+CUOTAS_PROMEDIO,Repositorio,Base,[col header CUOTAS_PROMEDIO / fila append],Manual
+PROFIT_SHARING,Repositorio,Base,[col header PROFIT_SHARING / fila append],Manual
+PRIMA_CEDIDA,Repositorio,Base,[col header PRIMA_CEDIDA / fila append],Manual
+FORMULA_SINIESTRALIDAD_APLICA,Repositorio,Base,[col header FORMULA_SINIESTRALIDAD_APLICA / fila append],Manual
+BRIM,Repositorio,Base,[col header BRIM / fila append],Manual
+OBSERVACIÓN,Repositorio,Base,[col header OBSERVACIÓN / fila append],Manual
+PLAN_DE_ACCIÓN,Repositorio,Base,[col header PLAN_DE_ACCIÓN / fila append],Manual
+PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO,Repositorio,Base,[col header PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO / fila append],Manual
+%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS),Repositorio,Base,[col header %_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS) / fila append],Manual
+TIENE_ECOSISTEMA_(SI/NO),Repositorio,Base,[col header TIENE_ECOSISTEMA_(SI/NO) / fila append],Manual
+CANAL_TMK_(SI/NO),Repositorio,Base,[col header CANAL_TMK_(SI/NO) / fila append],Manual
+ROP_(SI/NO),Repositorio,Base,[col header ROP_(SI/NO) / fila append],Manual
+BONIFICACION_ROP_(%),Repositorio,Base,[col header BONIFICACION_ROP_(%) / fila append],Manual
+VENTA_POR_PLANES_(SI/NO),Repositorio,Base,[col header VENTA_POR_PLANES_(SI/NO) / fila append],Manual
+POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA),Repositorio,Base,[col header POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA) / fila append],Manual
+MESES_DE_VENTA,Repositorio,Base,[col header MESES_DE_VENTA / fila append],Automatica
+INFLACION,Repositorio,Base,[col header INFLACION / fila append],Automatica
+CUT_OFF_RUN_OFF,Repositorio,Base,[col header CUT_OFF_RUN_OFF / fila append],Automatica
+FECHA_CUT_OFF,Repositorio,Base,[col header FECHA_CUT_OFF / fila append],Automatica
+PRODUCT_TYPE,Repositorio,Base,[col header PRODUCT_TYPE / fila append],Automatica
+PERIODICIDAD_(MENSUAL/UNICA),Repositorio,Base,[col header PERIODICIDAD_(MENSUAL/UNICA) / fila append],Automatica
+VENTAS (repo),Repositorio,Base,[col header VENTAS / fila append],Automatica
+PRIMA_CLIENTE_NETA,Repositorio,Base,[col header PRIMA_CLIENTE_NETA / fila append],Automatica
+COMISIONES (pct),Repositorio,Base,[col header COMISIONES / fila append],Automatica
+GASTOS_DIRECTOS (pct),Repositorio,Base,[col header GASTOS_DIRECTOS / fila append],Automatica
+GASTOS_INDIRECTOS (pct),Repositorio,Base,[col header GASTOS_INDIRECTOS / fila append],Automatica
+DURACION_MEDIA_MESES,Repositorio,Base,[col header DURACION_MEDIA_MESES / fila append],Automatica
+SINIESTRALIDAD (pct),Repositorio,Base,[col header SINIESTRALIDAD / fila append],Automatica
+SINIESTRALIDAD_SOBRE_LA_NEP,Repositorio,Base,[col header SINIESTRALIDAD_SOBRE_LA_NEP / fila append],Automatica
+DEVOLUCIONES (pct),Repositorio,Base,[col header DEVOLUCIONES / fila append],Automatica
+VALOR_CLIENTE,Repositorio,Base,[col header VALOR_CLIENTE / fila append],Automatica
+UF (repo),Repositorio,Base,[col header UF / fila append],Automatica
+ASISTENCIA_MENSUAL (repo),Repositorio,Base,[col header ASISTENCIA_MENSUAL / fila append],Automatica
+COSTOS_MENSUALES (repo),Repositorio,Base,[col header COSTOS_MENSUALES / fila append],Automatica
+COSTOS_VENTA (repo),Repositorio,Base,[col header COSTOS_VENTA / fila append],Automatica
+MESES_GRATIS/CARENCIA (repo),Repositorio,Base,[col header MESES_GRATIS/CARENCIA / fila append],Automatica
+CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO),Repositorio,Base,[col header CAPITAL_ASEGURADO... / fila append],Automatica
+SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO),Repositorio,Base,[col header SINIESTRO_MEDIO_(UF_O_CLP)... / fila append],Automatica
+TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO),Repositorio,Base,[col header TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO) / fila append],Automatica
+REASEGURO (repo),Repositorio,Base,[col header REASEGURO / fila append],Automatica
+SINIESTRO_CEDIDO (repo),Repositorio,Base,[col header SINIESTRO_CEDIDO / fila append],Automatica
+RATIO_DE_ASISTENCIA_SOBRE_LA_NEP (repo),Repositorio,Base,[col header RATIO_DE_ASISTENCIA_SOBRE_LA_NEP / fila append],Automatica
+IVA_EFECTIVO,Repositorio,Base,[col header IVA_EFECTIVO / fila append],Automatica
+IVA_RECUPERABLE,Repositorio,Base,[col header IVA_RECUPERABLE / fila append],Automatica
+GASTOS_DIRECTOS_/_NEP,Repositorio,Base,[col header GASTOS_DIRECTOS_/_NEP / fila append],Automatica
+GASTOS_INDIRECTOS_/_NEP,Repositorio,Base,[col header GASTOS_INDIRECTOS_/_NEP / fila append],Automatica
+FECHA_FIN_TARIFA,Repositorio,Base,[col header FECHA_FIN_TARIFA / fila append],Automatica
+ID_INTERNO,Repositorio,Tasa_Caida,[col header ID_INTERNO / filas append],Automatica
+PERIODO,Repositorio,Tasa_Caida,[col header PERIODO / filas append],Automatica
+PLAN,Repositorio,Tasa_Caida,[col header PLAN / filas append],Automatica
+TASA,Repositorio,Tasa_Caida,[col header TASA / filas append],Automatica

@@ -1,0 +1,157 @@
+Variable,Documento,Hoja,Celda,Manual o automatica
+PlanSheetsRaw,Formulario (UserForm),N/A,N/A,Manual
+CodigoTarifa,Formulario (UserForm),N/A,N/A,Manual
+Poliza,Formulario (UserForm),N/A,N/A,Manual
+CuotasPromedio,Formulario (UserForm),N/A,N/A,Manual
+ProfitSharing,Formulario (UserForm),N/A,N/A,Manual
+PrimaCedida,Formulario (UserForm),N/A,N/A,Manual
+FormulaSiniestralidadAplica,Formulario (UserForm),N/A,N/A,Manual
+Brim,Formulario (UserForm),N/A,N/A,Manual
+Observacion,Formulario (UserForm),N/A,N/A,Manual
+PlanAccion,Formulario (UserForm),N/A,N/A,Manual
+ProductoCuentaAsistencia,Formulario (UserForm),N/A,N/A,Manual
+DescuentoAsistenciaPct,Formulario (UserForm),N/A,N/A,Manual
+TieneEcosistema,Formulario (UserForm),N/A,N/A,Manual
+CanalTMK,Formulario (UserForm),N/A,N/A,Manual
+ROP,Formulario (UserForm),N/A,N/A,Manual
+BonificacionROPPct,Formulario (UserForm),N/A,N/A,Manual
+VentaPorPlanes,Formulario (UserForm),N/A,N/A,Manual
+PolizaEsContinuacion,Formulario (UserForm),N/A,N/A,Manual
+RepoPath,Selector de archivo (FileDialog/GetOpenFilename),N/A,N/A,Automatica
+CondorInputPath,Selector de archivo (FileDialog/GetOpenFilename),N/A,N/A,Automatica
+CondorOutputPath,Selector de archivo (FileDialog/GetOpenFilename),N/A,N/A,Automatica
+folderPath,Derivada desde CondorOutputPath,Función GetFolderFromFullName,N/A,Automatica
+bpFiles,Sistema de archivos (carpeta folderPath),N/A,Dir("*.xls*"),Automatica
+socioAuto,Condor Input (BPInputTemplate...),Global,C9,Automatica
+inputSheetName,Condor Input (BPInputTemplate...),PlanSheetsRaw (parseado),N/A,Automatica
+planName,Condor Input (BPInputTemplate...),[cada hoja input],C4,Automatica
+meses_venta,Condor Input (BPInputTemplate...),[cada hoja input],C9,Automatica
+inflacion,Condor Input (BPInputTemplate...),[cada hoja input],C14,Automatica
+loan_duration,Condor Input (BPInputTemplate...),[cada hoja input],C35,Automatica
+periodicidad,Condor Input (BPInputTemplate...),[cada hoja input],C39,Automatica
+product_type,Condor Input (BPInputTemplate...),[cada hoja input],C49,Automatica
+cut_off_run_off,Condor Input (BPInputTemplate...),[cada hoja input],C270,Automatica
+fecha_cut_off,Condor Input (BPInputTemplate...),[cada hoja input],C272 (solo si cut_off_run_off="Cut-Off"),Automatica
+tasa_n,Condor Input (BPInputTemplate...),[cada hoja input],Fila 27 desde C hasta última con contenido (n = # columnas),Automatica
+tasa(i),Condor Input (BPInputTemplate...),[cada hoja input],Fila 27 columnas C..última con contenido,Automatica
+outWB (Workbook),Condor Output (Results_BPInputTemplate...),N/A,Archivo CondorOutputPath,Automatica
+CONDOR_SHEET_CONSOLIDADO,Constante código,N/A,"Results_IFRS4_Net",Automatica
+totalCol,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 17 (busca header "Total"),Automatica
+Ventas,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 126 Col Total,Automatica
+GWP,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 131 Col Total,Automatica
+WrittenNetTax,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 132 Col Total,Automatica
+Devoluciones (monto),Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 137 Col Total,Automatica
+NEP,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 139 Col Total,Automatica
+ComisionesMonto,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 163 Col Total,Automatica
+Claims,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 174 Col Total,Automatica
+Expuestos,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 288 columnas C..última numérica (suma),Automatica
+GastosDirectosMonto,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 191 + Fila 192 (Col Total),Automatica
+GastosIndirectosMonto,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 196 + Fila 197 (Col Total),Automatica
+comPct (Comisiones/NEP),Derivada,En memoria,N/A,Automatica
+siniestralidad (Claims/NEP),Derivada,En memoria,N/A,Automatica
+valorCliente,Derivada (igual a siniestralidad),En memoria,N/A,Automatica
+primaClienteNeta,Derivada (CalcPrimaClienteNeta),En memoria,N/A,Automatica
+ivaEfectivo,Derivada ((GWP-WrittenNetTax)/WrittenNetTax),En memoria,N/A,Automatica
+ivaRec,Derivada (0.19 - ivaEfectivo),En memoria,N/A,Automatica
+gastosDirectosPct,Derivada (GastosDirectosMonto/NEP),En memoria,N/A,Automatica
+gastosIndirectosPct,Derivada (GastosIndirectosMonto/NEP),En memoria,N/A,Automatica
+devolPct,Derivada (Devoluciones/WrittenNetTax),En memoria,N/A,Automatica
+consPath,Sistema de archivos (bpFiles),N/A,Match token "consolidado",Automatica
+reaseguroTxt,BP Consolidado (archivo que contiene "consolidado"),BP Mensual,"Derivado: KR50>0 => Proporcional; si no => Sin Reaseguro",Automatica
+siniestroCedido,BP Consolidado (archivo que contiene "consolidado"),BP Mensual,KR49,Automatica
+ratioAsistSobreNEP,BP Consolidado (archivo que contiene "consolidado"),BP Mensual,"Derivado: KR39/KR18",Automatica
+planPath,Sistema de archivos (bpFiles),N/A,Match token planName (mejor score),Automatica
+ufCLP,BP por Plan (archivo match planName),Parametros,"Busca label 'UF' en col B y toma celda a la derecha",Automatica
+vI53,BP por Plan (archivo match planName),Parametros,I53,Automatica
+vM52,BP por Plan (archivo match planName),Parametros,M52,Automatica
+costoRecaudF55,BP por Plan (archivo match planName),Parametros,F55,Automatica
+primaNetaC6,BP por Plan (archivo match planName),Parametros,C6,Automatica
+pctBTG_C14,BP por Plan (archivo match planName),Parametros,C14,Automatica
+btgUF,Derivada (primaNetaC6*pctBTG_C14),En memoria,N/A,Automatica
+totalUF,Derivada (I53+F55+btgUF),En memoria,N/A,Automatica
+asistMensualCLP,Derivada (I53*ufCLP),En memoria,N/A,Automatica
+costosVentaCLP,Derivada (M52*ufCLP),En memoria,N/A,Automatica
+costosMensualesCLP,Derivada (totalUF*ufCLP),En memoria,N/A,Automatica
+mesesCarencia,BP por Plan (archivo match planName),Parametros,C8,Automatica
+capitalAsegUF,BP por Plan (archivo match planName),Parametros,C29:C43 (lista ';'),Automatica
+sinMedioUF,BP por Plan (archivo match planName),Parametros,D29:D43 (lista ';'),Automatica
+tasaEntradaRiesgo,BP por Plan (archivo match planName),Parametros,E29:E43 (lista ';'),Automatica
+nextRow,Derivada (NextFreeRow desde repo Base),Repositorio.xlsx,Base (col ID_INTERNO; startRow=2),Automatica
+nextId,Derivada (NextIdFromHeader desde repo Base),Repositorio.xlsx,Base (col ID_INTERNO; startRow=2),Automatica
+rowIndex,Derivada (rowIndex=nextRow al momento de escribir),En memoria,N/A,Automatica
+idValue,Derivada (idValue=nextId al momento de escribir),En memoria,N/A,Automatica
+polizaId,Retorno de AppendConsolidado (ID_INTERNO consolidado),En memoria,N/A,Automatica
+planId,ID_INTERNO del plan (idValue en FillBaseRow_Plan),En memoria,N/A,Automatica
+ID_INTERNO,Derivada (idValue/nextId),En memoria,N/A,Automatica
+CODIGO_TARIFA,Formulario (UserForm),N/A,N/A,Manual
+POLIZA,Formulario (UserForm),N/A,N/A,Manual
+SOCIO,Condor Input (BPInputTemplate...),Global,C9,Automatica
+PLAN,Constante / Condor Input,En memoria,"'Consolidado' o planName",Automatica
+PRIMA_CLIENTE_NETA,Derivada (CalcPrimaClienteNeta),En memoria,N/A,Automatica
+UNIDAD_PRIMA_CLIENTE_NETA,Hardcode,En memoria,"'CLP'",Automatica
+COMISIONES,Derivada (ComisionesMonto/NEP),En memoria,N/A,Automatica
+GASTOS_DIRECTOS,Derivada (GastosDirectosMonto/NEP),En memoria,N/A,Automatica
+GASTOS_INDIRECTOS,Derivada (GastosIndirectosMonto/NEP),En memoria,N/A,Automatica
+VENTAS,Condor Output (Results_BPInputTemplate...),[Results_IFRS4_Net o hoja plan],Fila 126 Col Total,Automatica
+MESES_DE_VENTA,Condor Input (BPInputTemplate...),[cada hoja input],C9 (en consolidado: Empty),Automatica
+DURACION_MEDIA_MESES,Derivada (Expuestos/Ventas),En memoria,N/A,Automatica
+TASA_DE_ENTRADA,Hardcode (pendiente),En memoria,"TODO_TEXT",Automatica
+SINIESTRO_MEDIO,Hardcode (pendiente),En memoria,"TODO_TEXT",Automatica
+UNIDAD_SINIESTRO_MEDIO,Hardcode,"En memoria","Consolidado: TODO_TEXT; Plan: 'UF'",Automatica
+SINIESTRALIDAD,Derivada (Claims/NEP),En memoria,N/A,Automatica
+DEVOLUCIONES,Derivada (Devoluciones/WrittenNetTax),En memoria,N/A,Automatica
+CUOTAS_PROMEDIO,Formulario (UserForm),N/A,N/A,Manual
+VALOR_CLIENTE,Derivada (igual a SINIESTRALIDAD),En memoria,N/A,Automatica
+ASISTENCIA_MENSUAL,BP por Plan (derivada) o Hardcode,"Parametros / En memoria","Plan: I53*UF; Consolidado: TODO_TEXT",Automatica
+UNIDAD_ASISTENCIA_MENSUAL,Hardcode,En memoria,"Plan: 'CLP'; Consolidado: TODO_TEXT",Automatica
+ASISTENCIA_VENTA,Hardcode (pendiente),En memoria,"TODO_TEXT",Automatica
+UNIDAD_ASISTENCIA_VENTA,Hardcode (pendiente),En memoria,"TODO_TEXT",Automatica
+COSTOS_MENSUALES,BP por Plan (derivada) o Hardcode,"Parametros / En memoria","Plan: (I53+F55+btgUF)*UF; Consolidado: TODO_TEXT",Automatica
+UNIDAD_COSTOS_MENSUALES,Hardcode,En memoria,"Plan: 'CLP'; Consolidado: TODO_TEXT",Automatica
+COSTOS_VENTA,BP por Plan (derivada) o Hardcode,"Parametros / En memoria","Plan: M52*UF; Consolidado: TODO_TEXT",Automatica
+UNIDAD_COSTOS_VENTA,Hardcode,En memoria,"Plan: 'CLP'; Consolidado: TODO_TEXT",Automatica
+OTROS_COSTOS_DIRECTOS_FIJOS,Hardcode (fuente pendiente),En memoria,"TODO_TEXT",Automatica
+UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS,Hardcode (fuente pendiente),En memoria,"TODO_TEXT",Automatica
+CUT_OFF_RUN_OFF,Condor Input (BPInputTemplate...),[cada hoja input],C270 (en consolidado: vbNullString),Automatica
+FECHA_CUT_OFF,Condor Input (BPInputTemplate...),[cada hoja input],C272 (en consolidado: Empty),Automatica
+INFLACION,Condor Input (BPInputTemplate...),[cada hoja input],C14 (en consolidado: vbNullString),Automatica
+PROFIT_SHARING,Formulario (UserForm),N/A,N/A,Manual
+PORCENTAJE_PROFIT_SHARING,Hardcode (pendiente),En memoria,"TODO_TEXT",Automatica
+REASEGURO,BP Consolidado o Hardcode,"BP Mensual / En memoria","Consolidado: derivado KR50; Plan: TODO_TEXT",Automatica
+PRIMA_CEDIDA,Formulario (UserForm),N/A,N/A,Manual
+SINIESTRO_CEDIDO,BP Consolidado o Hardcode,"BP Mensual / En memoria","Consolidado: KR49; Plan: TODO_TEXT",Automatica
+FORMULA_SINIESTRALIDAD_APLICA,Formulario (UserForm),N/A,N/A,Manual
+BRIM,Formulario (UserForm),N/A,N/A,Manual
+KPI_BRIM,Hardcode (pendiente),En memoria,"TODO_TEXT",Automatica
+UF,BP por Plan o Hardcode,"Parametros / En memoria","Plan: valor UF en CLP; Consolidado: TODO_TEXT",Automatica
+FECHA_FIN_TARIFA,Hardcode (Date),En memoria,"Date()",Automatica
+OBSERVACIÓN,Formulario (UserForm),N/A,N/A,Manual
+PLAN_DE_ACCIÓN,Formulario (UserForm),N/A,N/A,Manual
+PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO,Formulario (UserForm),N/A,N/A,Manual
+%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS),Formulario (UserForm),N/A,N/A,Manual
+RATIO_DE_ASISTENCIA_SOBRE_LA_NEP,BP Consolidado o Hardcode,"BP Mensual / En memoria","Consolidado: KR39/KR18; Plan: TODO_TEXT",Automatica
+SINIESTRALIDAD_SOBRE_LA_NEP,Derivada (igual SINIESTRALIDAD),En memoria,N/A,Automatica
+%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA,Hardcode (pendiente),En memoria,"TODO_TEXT",Automatica
+IVA_EFECTIVO,Derivada ((GWP-WrittenNetTax)/WrittenNetTax),En memoria,N/A,Automatica
+IVA_RECUPERABLE,Derivada (0.19 - ivaEfectivo),En memoria,N/A,Automatica
+GASTOS_DIRECTOS_/_NEP,Derivada (GastosDirectosMonto/NEP),En memoria,N/A,Automatica
+GASTOS_INDIRECTOS_/_NEP,Derivada (GastosIndirectosMonto/NEP),En memoria,N/A,Automatica
+TIENE_ECOSISTEMA_(SI/NO),Formulario (UserForm),N/A,N/A,Manual
+CANAL_TMK_(SI/NO),Formulario (UserForm),N/A,N/A,Manual
+ROP_(SI/NO),Formulario (UserForm),N/A,N/A,Manual
+BONIFICACION_ROP_(%),Formulario (UserForm),N/A,N/A,Manual
+VENTA_POR_PLANES_(SI/NO),Formulario (UserForm),N/A,N/A,Manual
+PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR),Hardcode (sin fuente),En memoria,"TODO_TEXT",Automatica
+OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR),Hardcode (sin fuente),En memoria,"TODO_TEXT",Automatica
+RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE),Hardcode (sin fuente),En memoria,"TODO_TEXT",Automatica
+CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO),BP por Plan,Parametros,C29:C43 (lista ';') (en consolidado: TODO_TEXT),Automatica
+SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO),BP por Plan,Parametros,D29:D43 (lista ';') (en consolidado: TODO_TEXT),Automatica
+TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO),BP por Plan,Parametros,E29:E43 (lista ';') (en consolidado: TODO_TEXT),Automatica
+MESES_GRATIS/CARENCIA,BP por Plan o Hardcode,"Parametros / En memoria","Plan: C8; Consolidado: TODO_TEXT",Automatica
+PRODUCT_TYPE,Condor Input (BPInputTemplate...),[cada hoja input],C49 (en consolidado: vbNullString),Automatica
+POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA),Formulario (UserForm),N/A,N/A,Manual
+PERIODICIDAD_(MENSUAL/UNICA),Condor Input (BPInputTemplate...),[cada hoja input],C39 (en consolidado: vbNullString),Automatica
+ID_INTERNO (Tasa_Caida),Derivada (planId),En memoria,N/A,Automatica
+PERIODO (Tasa_Caida),Derivada (i=1..tasa_n),En memoria,N/A,Automatica
+PLAN (Tasa_Caida),Condor Input (BPInputTemplate...),[cada hoja input],C4 (planName),Automatica
+TASA (Tasa_Caida),Condor Input (BPInputTemplate...),[cada hoja input],Fila 27 columnas C..última,Automatica

@@ -1,0 +1,1681 @@
+Option Explicit
+
+'===========================================================
+' Export Condor + BPs -> Repositorio (Base, Tasa_Caida, Por_Riesgo)
+'
+'===========================================================
+' FLUJO GENERAL (versión humana)
+'
+' 1) Abre el Repositorio y valida headers obligatorios en Base/Tasa_Caida/Por_Riesgo.
+' 2) Abre Condor Input (BPInputTemplate...) para:
+'    - armar diccionario por plan (MESES_DE_VENTA, INFLACION, PERIODICIDAD, etc.)
+'    - leer TASA_CAIDA (fila 27 desde C a última col con contenido)
+'    - leer SOCIO desde Global!C9
+' 3) Abre Condor Output (Results_BPInputTemplate...) y:
+'    - inserta SIEMPRE un registro nuevo con datos de Consolidado
+'      *si NO hay planes (PlanSheetsRaw vacío) => PLAN = "N/A"
+'      *si hay planes => PLAN = "Consolidado"
+'    - si hay planes: inserta SIEMPRE un registro nuevo por cada plan
+' 4) Para cada plan, busca su BP en la carpeta del CondorOutput y lee:
+'    - Parametros (meses carencia + tabla Por_Riesgo)
+'    - BP Mensual (comisiones, tasa entrada, siniestro medio, reaseguro, siniestro cedido,
+'      ratio asistencia, otros costos directos fijos)
+' 5) Escribe Tasa_Caida por plan en Tasa_Caida (bloque, rápido).
+'
+' MODS IMPORTANTES IMPLEMENTADAS:
+'   (1) UF ya NO se busca en BP. UF es input manual (formulario) => p.UF_CLP.
+'       Se elimina TODO lo relativo a buscar UF en Parametros.
+'   (2) Si PlanSheetsRaw viene vacío => NO hay planes:
+'       - igual se exporta consolidado, pero PLAN="N/A"
+'       - se omite exportación de planes, Tasa_Caida y Por_Riesgo.
+'   (3) ASISTENCIA_MENSUAL, ASISTENCIA_VENTA, COSTOS_VENTA => TODO (plan y consolidado).
+'   (4) LOAN_DURATION:
+'       - Single/Unica: Input C35 -> Base.LOAN_DURATION
+'       - Monthly/Mensual: Base.LOAN_DURATION = "N/A"
+'   (5) DURACION_MEDIA_MESES:
+'       - Mensual: EXPUESTOS/VENTAS
+'       - Unica: TODO (pendiente "VENTA PRIMA UNICA")
+'===========================================================
+
+'-----------------------
+' Parámetros de ejecución
+'-----------------------
+Public Type tExportParams
+    RepoPath As String
+    CondorInputPath As String          'BPInputTemplate...
+    CondorOutputPath As String         'Results_BPInputTemplate...
+
+    'Manual / formulario (se repite para consolidado y planes)
+    CodigoTarifa As String
+    Poliza As String
+
+    'UF (CLP) ahora es manual en formulario
+    UF_CLP As Variant
+
+    CuotasPromedio As Variant
+    ProfitSharing As Variant
+    PrimaCedida As Variant
+    FormulaSiniestralidadAplica As Variant
+    Brim As Variant
+
+    Observacion As String
+    PlanAccion As String
+
+    ProductoCuentaAsistencia As Variant
+    DescuentoAsistenciaPct As Variant
+    TieneEcosistema As Variant
+    CanalTMK As Variant
+    ROP As Variant
+    BonificacionROPPct As Variant
+    VentaPorPlanes As Variant
+    PolizaEsContinuacion As Variant
+
+    'Lista de hojas INPUT separadas por ";", por ejemplo: "X;Y;Z"
+    'Si viene vacío => la póliza NO tiene planes (solo consolidado con PLAN="N/A")
+    PlanSheetsRaw As String
+End Type
+
+'-----------------------
+' Setup: nombres de hojas / celdas ajustables
+'-----------------------
+Private Const REPO_BASE_SHEET As String = "Base"
+Private Const REPO_TASA_SHEET As String = "Tasa_Caida"
+Private Const REPO_POR_RIESGO_SHEET As String = "Por_Riesgo"
+
+Private Const CONDOR_SHEET_CONSOLIDADO As String = "Results_IFRS4_Net"
+Private Const CONDOR_TOTAL_HEADER_ROW As Long = 17
+Private Const CONDOR_TOTAL_HEADER_TEXT As String = "Total"
+Private Const CONDOR_MIN_DATA_COL As Long = 3   'C
+
+'Filas (Output Condor) — mismo layout en consolidado y en plan
+Private Const ROW_VENTAS As Long = 126
+Private Const ROW_GWP As Long = 131
+Private Const ROW_WRITTEN_NET_TAX As Long = 132
+Private Const ROW_DEVOLUCIONES As Long = 137
+Private Const ROW_NEP As Long = 139
+Private Const ROW_COMISIONES_MONTO As Long = 163  'se sigue leyendo, aunque comisiones finales salen del BP
+Private Const ROW_CLAIMS As Long = 174
+Private Const ROW_EXPUESTOS As Long = 288
+
+'Input Condor (por hoja X/Y/Z)
+Private Const IN_ADDR_PLANNAME As String = "C4"
+Private Const IN_ADDR_MESES_VENTA As String = "C9"
+Private Const IN_ADDR_INFLACION As String = "C14"
+Private Const IN_ADDR_LOAN_DURATION As String = "C35"
+Private Const IN_ADDR_PERIODICIDAD As String = "C39"
+Private Const IN_ADDR_PRODUCT_TYPE As String = "C49"
+Private Const IN_ADDR_CUTOFF_RUNOFF As String = "C270"
+Private Const IN_ADDR_FECHA_CUTOFF As String = "C272"
+
+'Input Condor tasa caída: fila 27, columnas desde C hasta última col con contenido (dinámico)
+Private Const IN_TASA_ROW As Long = 27
+Private Const IN_TASA_COL_START As Long = 3     'C
+
+'Global (Condor Input) para SOCIO
+Private Const GLOBAL_SHEET As String = "Global"
+Private Const GLOBAL_ADDR_SOCIO As String = "C9"
+
+'BP: hojas
+Private Const BP_PARAMS_SHEET As String = "Parametros"
+Private Const BP_MENSUAL_SHEET As String = "BP Mensual"
+
+'BP Parametros: celdas que ya usábamos
+Private Const BP_PARAMS_ASIST_MENSUAL As String = "I53"   'UF (se usa internamente para COSTOS_MENSUALES si aplica)
+Private Const BP_PARAMS_MESES_CARENCIA As String = "C8"
+
+'BP Mensual: celdas clave
+Private Const BP_KR_COMISION_BRUTA As String = "KR20"
+Private Const BP_KR_PRIMA_BRUTA As String = "KR12"
+
+Private Const BP_KR_TASA_ENTRADA_NUM As String = "KR36"
+Private Const BP_KR_TASA_ENTRADA_DEN As String = "KR8"
+
+Private Const BP_KR_SIN_MEDIO_NUM As String = "KR37"
+Private Const BP_KR_SIN_MEDIO_DEN As String = "KR36"
+
+Private Const BP_KR_OTROS_COSTOS_FIJOS As String = "KR45"
+
+Private Const BP_CONS_REASEGURO_CELL As String = "KR50"
+Private Const BP_CONS_SINIESTRO_CEDIDO_CELL As String = "KR49"
+Private Const BP_CONS_ASIST_CELL As String = "KR39"
+Private Const BP_CONS_NEP_CELL As String = "KR18"
+
+'BP Mensual: meses expuestos (fila 7 desde C a derecha)
+Private Const BP_MES_EXP_ROW As Long = 7
+Private Const BP_MES_EXP_COL_START As Long = 3 'C
+
+'Por_Riesgo en Parametros
+Private Const PR_FECHA_VENTA_CELL As String = "C24"
+Private Const PR_TABLE_START_ROW As Long = 30
+Private Const PR_COL_RIESGO As Long = 2 'B
+Private Const PR_COL_CAPITAL As Long = 3 'C
+Private Const PR_COL_SIN_MEDIO As Long = 4 'D
+Private Const PR_COL_TASA_ENTR As Long = 5 'E
+
+'Valores especiales
+Private Const TODO_TEXT As String = "TODO"
+
+'===========================================================
+' LISTADO OFICIAL: headers requeridos en la hoja Base
+'===========================================================
+Private Function RequiredHeaders_Base() As Variant
+    Dim chunks As Variant
+
+    chunks = Array( _
+        "ID_INTERNO|CODIGO_TARIFA|POLIZA|SOCIO|PLAN|PRIMA_CLIENTE_NETA|UNIDAD_PRIMA_CLIENTE_NETA|COMISIONES|GASTOS_DIRECTOS|GASTOS_INDIRECTOS|VENTAS|MESES_DE_VENTA|LOAN_DURATION|DURACION_MEDIA_MESES|TASA_DE_ENTRADA|SINIESTRO_MEDIO|UNIDAD_SINIESTRO_MEDIO|SINIESTRALIDAD|DEVOLUCIONES|CUOTAS_PROMEDIO|VALOR_CLIENTE|ASISTENCIA_MENSUAL|UNIDAD_ASISTENCIA_MENSUAL|ASISTENCIA_VENTA|UNIDAD_ASISTENCIA_VENTA", _
+        "COSTOS_MENSUALES|UNIDAD_COSTOS_MENSUALES|COSTOS_VENTA|UNIDAD_COSTOS_VENTA|OTROS_COSTOS_DIRECTOS_FIJOS|UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS|CUT_OFF_RUN_OFF|FECHA_CUT_OFF|INFLACION|PROFIT_SHARING|PORCENTAJE_PROFIT_SHARING|REASEGURO|PRIMA_CEDIDA|SINIESTRO_CEDIDO|FORMULA_SINIESTRALIDAD_APLICA|BRIM|KPI_BRIM|UF|FECHA_FIN_TARIFA|OBSERVACIÓN|PLAN_DE_ACCIÓN", _
+        "PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO|%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS)|RATIO_DE_ASISTENCIA_SOBRE_LA_NEP|SINIESTRALIDAD_SOBRE_LA_NEP|%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA|IVA_EFECTIVO|IVA_RECUPERABLE|GASTOS_DIRECTOS_/_NEP|GASTOS_INDIRECTOS_/_NEP", _
+        "TIENE_ECOSISTEMA_(SI/NO)|CANAL_TMK_(SI/NO)|ROP_(SI/NO)|BONIFICACION_ROP_(%)|VENTA_POR_PLANES_(SI/NO)|PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)|OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)|RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE)", _
+        "CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO)|SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO)|TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO)|MESES_GRATIS/CARENCIA|PRODUCT_TYPE|POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)|PERIODICIDAD_(MENSUAL/UNICA)" _
+    )
+
+    RequiredHeaders_Base = HeadersFromChunks(chunks, "|")
+End Function
+
+Private Function HeadersFromChunks(ByVal chunks As Variant, ByVal delim As String) As Variant
+    Dim i As Long, j As Long
+    Dim parts As Variant
+    Dim tmp() As String
+    Dim n As Long
+
+    n = 0
+    For i = LBound(chunks) To UBound(chunks)
+        parts = Split(CStr(chunks(i)), delim)
+        n = n + (UBound(parts) - LBound(parts) + 1)
+    Next i
+
+    ReDim tmp(0 To n - 1)
+
+    n = 0
+    For i = LBound(chunks) To UBound(chunks)
+        parts = Split(CStr(chunks(i)), delim)
+        For j = LBound(parts) To UBound(parts)
+            tmp(n) = CStr(parts(j))
+            n = n + 1
+        Next j
+    Next i
+
+    HeadersFromChunks = tmp
+End Function
+
+'===========================================================
+' LISTADO OFICIAL: headers requeridos en la hoja Tasa_Caida
+'===========================================================
+Private Function RequiredHeaders_Tasa() As Variant
+    RequiredHeaders_Tasa = Array("ID_INTERNO", "PERIODO", "PLAN", "TASA")
+End Function
+
+'===========================================================
+' LISTADO OFICIAL: headers requeridos en la hoja Por_Riesgo
+'===========================================================
+Private Function RequiredHeaders_PorRiesgo() As Variant
+    RequiredHeaders_PorRiesgo = Array("ID_INTERNO", "FECHA_DE_VENTA", "PLAN", "RIESGO", "METRICA", "VALOR")
+End Function
+
+'===========================================================
+' Campos manuales obligatorios (según listado)
+'===========================================================
+Private Sub ValidateManualFields(ByRef p As tExportParams)
+
+    If Len(Trim$(p.CodigoTarifa)) = 0 Then Err.Raise vbObjectError + 8010, "ValidateManualFields", "CODIGO_TARIFA vacío."
+    If Len(Trim$(p.Poliza)) = 0 Then Err.Raise vbObjectError + 8011, "ValidateManualFields", "POLIZA vacío."
+
+    'UF manual (CLP)
+    If IsEmptyOrBlank(p.UF_CLP) Then Err.Raise vbObjectError + 8011, "ValidateManualFields", "UF (CLP) vacío."
+    If Not IsNumeric(p.UF_CLP) Then Err.Raise vbObjectError + 8011, "ValidateManualFields", "UF (CLP) debe ser numérico."
+
+    If IsEmptyOrBlank(p.CuotasPromedio) Then Err.Raise vbObjectError + 8012, "ValidateManualFields", "CUOTAS_PROMEDIO vacío."
+    If IsEmptyOrBlank(p.ProfitSharing) Then Err.Raise vbObjectError + 8013, "ValidateManualFields", "PROFIT_SHARING vacío."
+    If IsEmptyOrBlank(p.PrimaCedida) Then Err.Raise vbObjectError + 8014, "ValidateManualFields", "PRIMA_CEDIDA vacío."
+    If IsEmptyOrBlank(p.FormulaSiniestralidadAplica) Then Err.Raise vbObjectError + 8015, "ValidateManualFields", "FORMULA_SINIESTRALIDAD_APLICA vacío."
+    If IsEmptyOrBlank(p.Brim) Then Err.Raise vbObjectError + 8016, "ValidateManualFields", "BRIM vacío."
+
+    If Len(Trim$(p.Observacion)) = 0 Then Err.Raise vbObjectError + 8017, "ValidateManualFields", "OBSERVACIÓN vacía."
+    If Len(Trim$(p.PlanAccion)) = 0 Then Err.Raise vbObjectError + 8018, "ValidateManualFields", "PLAN_DE_ACCIÓN vacío."
+
+    If IsEmptyOrBlank(p.ProductoCuentaAsistencia) Then Err.Raise vbObjectError + 8019, "ValidateManualFields", "PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO vacío."
+    If IsEmptyOrBlank(p.DescuentoAsistenciaPct) Then Err.Raise vbObjectError + 8020, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS) vacío."
+    If IsEmptyOrBlank(p.TieneEcosistema) Then Err.Raise vbObjectError + 8021, "ValidateManualFields", "TIENE_ECOSISTEMA_(SI/NO) vacío."
+    If IsEmptyOrBlank(p.CanalTMK) Then Err.Raise vbObjectError + 8022, "ValidateManualFields", "CANAL_TMK_(SI/NO) vacío."
+    If IsEmptyOrBlank(p.ROP) Then Err.Raise vbObjectError + 8023, "ValidateManualFields", "ROP_(SI/NO) vacío."
+
+    'Si ROP = SI, ahí sí exigimos bonificación. Si es NO, la dejamos en "N/A".
+    If UCase$(Trim$(CStr(p.ROP))) = "SI" Then
+        If IsEmptyOrBlank(p.BonificacionROPPct) Then Err.Raise vbObjectError + 8024, "ValidateManualFields", "BONIFICACION_ROP_(%) vacío (ROP=SI)."
+    Else
+        p.BonificacionROPPct = "N/A"
+    End If
+
+    If IsEmptyOrBlank(p.VentaPorPlanes) Then Err.Raise vbObjectError + 8025, "ValidateManualFields", "VENTA_POR_PLANES_(SI/NO) vacío."
+    If IsEmptyOrBlank(p.PolizaEsContinuacion) Then Err.Raise vbObjectError + 8026, "ValidateManualFields", "POLIZA_ES_CONTINUACION_(...) vacío."
+End Sub
+
+Private Function IsEmptyOrBlank(ByVal v As Variant) As Boolean
+    If IsEmpty(v) Or IsNull(v) Then
+        IsEmptyOrBlank = True
+    ElseIf VarType(v) = vbString Then
+        IsEmptyOrBlank = (Len(Trim$(CStr(v))) = 0)
+    Else
+        IsEmptyOrBlank = False
+    End If
+End Function
+
+'===========================================================
+' Entrada principal
+'===========================================================
+Public Sub ExportarRepositorio(ByRef p As tExportParams, ByVal closeRepoAfter As Boolean)
+
+    Dim prevScreenUpdating As Boolean
+    Dim prevEnableEvents As Boolean
+    Dim prevDisplayAlerts As Boolean
+    Dim prevAskToUpdateLinks As Boolean
+    Dim prevCalculation As XlCalculation
+
+    Dim repoWB As Workbook
+    Dim baseWS As Worksheet, tasaWS As Worksheet, porWS As Worksheet
+    Dim headers As Object, tasaHeaders As Object, porHeaders As Object
+
+    Dim nextId As Long, nextRow As Long
+
+    Dim inWB As Workbook, outWB As Workbook
+    Dim inputSheets As Collection
+    Dim planInputs As Object
+    Dim planOrder As Collection
+
+    Dim folderPath As String
+    Dim bpFiles As Variant
+
+    Dim socioAuto As String
+    Dim hasPlans As Boolean
+    Dim consolidadoPlanLabel As String
+
+    On Error GoTo FAIL
+
+    prevScreenUpdating = Application.ScreenUpdating
+    prevEnableEvents = Application.EnableEvents
+    prevDisplayAlerts = Application.DisplayAlerts
+    prevAskToUpdateLinks = Application.AskToUpdateLinks
+    prevCalculation = Application.Calculation
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.AskToUpdateLinks = False
+    Application.Calculation = xlCalculationManual
+
+    'Validaciones mínimas
+    If Len(Trim$(p.RepoPath)) = 0 Then Err.Raise vbObjectError + 7001, "ExportarRepositorio", "RepoPath vacío."
+    If Len(Trim$(p.CondorInputPath)) = 0 Then Err.Raise vbObjectError + 7002, "ExportarRepositorio", "CondorInputPath vacío."
+    If Len(Trim$(p.CondorOutputPath)) = 0 Then Err.Raise vbObjectError + 7003, "ExportarRepositorio", "CondorOutputPath vacío."
+
+    'Validación de campos manuales
+    ValidateManualFields p
+
+    'Carpeta de BPs automática: misma carpeta que CondorOutputPath
+    folderPath = GetFolderFromFullName(p.CondorOutputPath)
+
+    'Abrir repo
+    Set repoWB = Workbooks.Open(Filename:=p.RepoPath, UpdateLinks:=0, ReadOnly:=False, AddToMru:=False)
+    Set baseWS = GetWorksheet(repoWB, REPO_BASE_SHEET)
+    Set tasaWS = GetWorksheet(repoWB, REPO_TASA_SHEET)
+    Set porWS = GetWorksheet(repoWB, REPO_POR_RIESGO_SHEET)
+
+    Set headers = BuildHeaderMap(baseWS, 1)
+    Set tasaHeaders = BuildHeaderMap(tasaWS, 1)
+    Set porHeaders = BuildHeaderMap(porWS, 1)
+
+    'Validar headers obligatorios
+    RequireHeadersList headers, RequiredHeaders_Base(), REPO_BASE_SHEET
+    RequireHeadersList tasaHeaders, RequiredHeaders_Tasa(), REPO_TASA_SHEET
+    RequireHeadersList porHeaders, RequiredHeaders_PorRiesgo(), REPO_POR_RIESGO_SHEET
+
+    nextId = NextIdFromHeader(baseWS, CLng(headers("ID_INTERNO")), 2)
+    nextRow = NextFreeRow(baseWS, CLng(headers("ID_INTERNO")), 2)
+
+    'Abrir Condor Input
+    Set inWB = Workbooks.Open(Filename:=p.CondorInputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+
+    socioAuto = Trim$(CStr(ReadCell(inWB, GLOBAL_SHEET, GLOBAL_ADDR_SOCIO)))
+    If Len(socioAuto) = 0 Then Err.Raise vbObjectError + 7100, "ExportarRepositorio", "SOCIO vacío en Global!C9 del Condor Input."
+
+    'Planes: si PlanSheetsRaw viene vacío => NO hay planes
+    Set inputSheets = ParseSemicolonList(p.PlanSheetsRaw)
+    hasPlans = (Not inputSheets Is Nothing And inputSheets.Count > 0)
+
+    If hasPlans Then
+        Set planInputs = CreateObject("Scripting.Dictionary")
+        planInputs.CompareMode = vbTextCompare
+
+        Set planOrder = New Collection
+        BuildPlanInputs inWB, inputSheets, planInputs, planOrder
+
+        consolidadoPlanLabel = "Consolidado"
+    Else
+        consolidadoPlanLabel = "N/A"
+    End If
+
+    'Abrir Condor Output
+    Set outWB = Workbooks.Open(Filename:=p.CondorOutputPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+
+    'Listar archivos BP en carpeta
+    bpFiles = FS_ListExcelFilesInFolder(folderPath, repoWB.FullName, p.CondorInputPath, p.CondorOutputPath)
+    If IsEmpty(bpFiles) Then Err.Raise vbObjectError + 7201, "ExportarRepositorio", "No hay BPs en carpeta: " & folderPath
+    FS_SortFilesNatural bpFiles
+
+    '=========
+    ' 1) CONSOLIDADO (siempre NUEVO)
+    '   - si NO hay planes => PLAN="N/A"
+    '=========
+    Call AppendConsolidado(baseWS, headers, nextRow, nextId, p, socioAuto, consolidadoPlanLabel, outWB, bpFiles)
+
+    '=========
+    ' 2) PLANES + Tasa_Caida + Por_Riesgo (solo si hay planes)
+    '=========
+    If hasPlans Then
+        AppendPlanesAndRates baseWS, headers, tasaWS, tasaHeaders, porWS, porHeaders, _
+                            nextRow, nextId, p, socioAuto, outWB, planInputs, planOrder, bpFiles
+    End If
+
+    repoWB.Save
+
+CLEANUP:
+    On Error Resume Next
+    If Not outWB Is Nothing Then outWB.Close SaveChanges:=False
+    If Not inWB Is Nothing Then inWB.Close SaveChanges:=False
+
+    If closeRepoAfter Then
+        If Not repoWB Is Nothing Then repoWB.Close SaveChanges:=False
+    End If
+
+    Application.Calculation = prevCalculation
+    Application.AskToUpdateLinks = prevAskToUpdateLinks
+    Application.DisplayAlerts = prevDisplayAlerts
+    Application.EnableEvents = prevEnableEvents
+    Application.ScreenUpdating = prevScreenUpdating
+    Exit Sub
+
+FAIL:
+    MsgBox "Error exportando al Repositorio: " & Err.Description, vbCritical
+    Resume CLEANUP
+End Sub
+
+Private Sub RequireHeadersList(ByVal headers As Object, ByVal requiredList As Variant, ByVal sheetName As String)
+    Dim i As Long, h As String
+    For i = LBound(requiredList) To UBound(requiredList)
+        h = CStr(requiredList(i))
+        If Not headers.Exists(h) Then
+            Err.Raise vbObjectError + 9101, "RequireHeadersList", "Falta header '" & h & "' en hoja " & sheetName
+        End If
+    Next i
+End Sub
+
+'===========================================================
+' Condor Input: lectura inputs por plan
+'===========================================================
+Private Sub BuildPlanInputs(ByVal inWB As Workbook, ByVal inputSheets As Collection, _
+                           ByRef planInputs As Object, ByRef planOrder As Collection)
+
+    Dim s As Variant
+    For Each s In inputSheets
+        Dim inputSheetName As String
+        Dim planName As String
+
+        inputSheetName = CStr(s)
+        planName = Trim$(CStr(ReadCell(inWB, inputSheetName, IN_ADDR_PLANNAME)))
+        If Len(planName) = 0 Then
+            Err.Raise vbObjectError + 7301, "BuildPlanInputs", "C4 vacío (nombre plan) en hoja INPUT: " & inputSheetName
+        End If
+
+        planOrder.Add planName
+
+        Dim d As Object
+        Set d = CreateObject("Scripting.Dictionary")
+        d.CompareMode = vbTextCompare
+
+        d("meses_venta") = ReadCell(inWB, inputSheetName, IN_ADDR_MESES_VENTA)
+        d("inflacion") = Trim$(CStr(ReadCell(inWB, inputSheetName, IN_ADDR_INFLACION)))
+        d("periodicidad") = Trim$(CStr(ReadCell(inWB, inputSheetName, IN_ADDR_PERIODICIDAD)))
+        d("product_type") = Trim$(CStr(ReadCell(inWB, inputSheetName, IN_ADDR_PRODUCT_TYPE)))
+
+        Dim cutTxt As String
+        cutTxt = Trim$(CStr(ReadCell(inWB, inputSheetName, IN_ADDR_CUTOFF_RUNOFF)))
+        d("cut_off_run_off") = cutTxt
+
+        If StrComp(cutTxt, "Cut-Off", vbTextCompare) = 0 Then
+            d("fecha_cut_off") = ReadCell(inWB, inputSheetName, IN_ADDR_FECHA_CUTOFF)
+        Else
+            d("fecha_cut_off") = Empty
+        End If
+
+        'LOAN_DURATION: solo aplica si es prima única (Single/Unica)
+        If IsPrimaUnicaText(CStr(d("periodicidad"))) Then
+            d("loan_duration") = ReadCell(inWB, inputSheetName, IN_ADDR_LOAN_DURATION)
+        Else
+            d("loan_duration") = "N/A"
+        End If
+
+        'Tasa caída (fila 27 desde C hasta última col con contenido)
+        Dim ws As Worksheet
+        Set ws = inWB.Worksheets(inputSheetName)
+
+        Dim lastCol As Long
+        lastCol = ws.Cells(IN_TASA_ROW, ws.Columns.Count).End(xlToLeft).Column
+        If lastCol < IN_TASA_COL_START Then lastCol = IN_TASA_COL_START
+
+        Dim n As Long
+        n = lastCol - IN_TASA_COL_START + 1
+
+        Dim tasa() As Double
+        ReDim tasa(1 To n)
+
+        Dim k As Long
+        For k = 1 To n
+            'si viene vacío, ValSafe lo deja en 0, y eso es exactamente lo que queremos
+            tasa(k) = CDbl(ValSafe(ws.Cells(IN_TASA_ROW, IN_TASA_COL_START + (k - 1)).Value2))
+        Next k
+
+        d("tasa") = tasa
+        d("tasa_n") = n
+
+        planInputs(planName) = d
+    Next s
+End Sub
+
+Private Function IsPrimaUnicaText(ByVal periodicidadTxt As String) As Boolean
+    Dim s As String
+    s = LCase$(Trim$(periodicidadTxt))
+    IsPrimaUnicaText = (InStr(1, s, "unic", vbTextCompare) > 0 Or InStr(1, s, "single", vbTextCompare) > 0)
+End Function
+
+Private Function IsMensualText(ByVal periodicidadTxt As String) As Boolean
+    Dim s As String
+    s = LCase$(Trim$(periodicidadTxt))
+    IsMensualText = (InStr(1, s, "mens", vbTextCompare) > 0 Or InStr(1, s, "month", vbTextCompare) > 0)
+End Function
+
+'===========================================================
+' CONSOLIDADO (siempre nuevo)
+'===========================================================
+Private Sub AppendConsolidado(ByVal baseWS As Worksheet, ByVal headers As Object, _
+                             ByRef nextRow As Long, ByRef nextId As Long, _
+                             ByRef p As tExportParams, ByVal socioAuto As String, _
+                             ByVal planLabel As String, _
+                             ByVal outWB As Workbook, ByVal bpFiles As Variant)
+
+    Dim ws As Worksheet
+    If Not WorksheetExists(outWB, CONDOR_SHEET_CONSOLIDADO) Then
+        Err.Raise vbObjectError + 7401, "AppendConsolidado", "No existe hoja '" & CONDOR_SHEET_CONSOLIDADO & "' en " & outWB.Name
+    End If
+    Set ws = outWB.Worksheets(CONDOR_SHEET_CONSOLIDADO)
+
+    Dim totalCol As Long
+    totalCol = FindTotalCol(ws, CONDOR_TOTAL_HEADER_ROW, CONDOR_MIN_DATA_COL)
+
+    Dim m As tMetrics
+    m = ReadCondorMetrics(ws, totalCol)
+
+    'Derivados Condor
+    Dim siniestralidad As Variant
+    If m.NEP <> 0# Then siniestralidad = m.Claims / m.NEP Else siniestralidad = Empty
+
+    Dim devolPct As Variant
+    If m.WrittenNetTax <> 0# Then devolPct = m.Devoluciones / m.WrittenNetTax Else devolPct = Empty
+
+    Dim primaClienteNeta As Variant
+    primaClienteNeta = CalcPrimaClienteNeta(m.GWP, m.Expuestos, m.Ventas, "mensual") 'consolidado como mensual
+
+    Dim ivaEfectivo As Variant, ivaRec As Variant
+    If m.WrittenNetTax <> 0# Then
+        ivaEfectivo = (m.GWP - m.WrittenNetTax) / m.WrittenNetTax
+        ivaRec = 0.19 - CDbl(ivaEfectivo)
+    Else
+        ivaEfectivo = Empty
+        ivaRec = Empty
+    End If
+
+    Dim gastosDirectosPct As Variant, gastosIndirectosPct As Variant
+    If m.NEP <> 0# Then
+        gastosDirectosPct = m.GastosDirectosMonto / m.NEP
+        gastosIndirectosPct = m.GastosIndirectosMonto / m.NEP
+    Else
+        gastosDirectosPct = Empty
+        gastosIndirectosPct = Empty
+    End If
+
+    'BP consolidado: SOLO BP Mensual + (opcional) Parametros para meses carencia / costos mensuales
+    Dim bpComPct As Variant, bpTasaEntrada As Variant, bpSinMedio As Variant
+    Dim bpOtrosCostosFijos As Variant, bpReaseguroTxt As Variant, bpSiniestroCedido As Variant, bpRatioAsist As Variant
+    Dim costosMensualesCLP As Variant, mesesCarencia As Variant
+
+    ReadBPConsolidadoData bpFiles, CDbl(p.UF_CLP), costosMensualesCLP, mesesCarencia, _
+        bpComPct, bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist
+
+    'Nuevo ID/row
+    Dim rowIndex As Long, idValue As Long
+    rowIndex = nextRow
+    idValue = nextId
+    nextRow = nextRow + 1
+    nextId = nextId + 1
+
+    FillBaseRow_Consolidado baseWS, headers, rowIndex, idValue, p, socioAuto, planLabel, m, _
+                            primaClienteNeta, bpComPct, gastosDirectosPct, gastosIndirectosPct, _
+                            siniestralidad, devolPct, ivaEfectivo, ivaRec, _
+                            costosMensualesCLP, mesesCarencia, _
+                            bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
+                            bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist
+End Sub
+
+Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As Object, _
+                                   ByVal rowIndex As Long, ByVal idValue As Long, _
+                                   ByRef p As tExportParams, ByVal socioAuto As String, _
+                                   ByVal planLabel As String, _
+                                   ByRef m As tMetrics, _
+                                   ByVal primaClienteNeta As Variant, ByVal comPct As Variant, _
+                                   ByVal gastosDirPct As Variant, ByVal gastosIndPct As Variant, _
+                                   ByVal siniestralidad As Variant, ByVal devolPct As Variant, _
+                                   ByVal ivaEfectivo As Variant, ByVal ivaRec As Variant, _
+                                   ByVal costosMensualesCLP As Variant, ByVal mesesCarencia As Variant, _
+                                   ByVal tasaEntrada As Variant, ByVal sinMedio As Variant, ByVal otrosCostosFijos As Variant, _
+                                   ByVal reaseguroTxt As Variant, ByVal siniestroCedido As Variant, ByVal ratioAsistSobreNEP As Variant)
+
+    'Identidad
+    WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
+    WriteByHeader baseWS, headers, rowIndex, "CODIGO_TARIFA", p.CodigoTarifa
+    WriteByHeader baseWS, headers, rowIndex, "POLIZA", p.Poliza
+    WriteByHeader baseWS, headers, rowIndex, "SOCIO", socioAuto
+    WriteByHeader baseWS, headers, rowIndex, "PLAN", planLabel
+
+    'Condor Output
+    WriteByHeader baseWS, headers, rowIndex, "VENTAS", m.Ventas
+    WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNeta
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+
+    'COMISIONES (BP Mensual)
+    WriteByHeader baseWS, headers, rowIndex, "COMISIONES", comPct
+
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirPct
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndPct
+    WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", Empty
+
+    'Consolidado: LOAN_DURATION no aplica
+    WriteByHeader baseWS, headers, rowIndex, "LOAN_DURATION", "N/A"
+
+    WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", CalcDuracionMedia(m.Expuestos, m.Ventas)
+
+    'TASA_DE_ENTRADA y SINIESTRO_MEDIO (BP Mensual)
+    WriteByHeader baseWS, headers, rowIndex, "TASA_DE_ENTRADA", tasaEntrada
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_MEDIO", sinMedio
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_SINIESTRO_MEDIO", "CLP"
+
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD_SOBRE_LA_NEP", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
+    WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", siniestralidad
+
+    'UF manual (formulario)
+    WriteByHeader baseWS, headers, rowIndex, "UF", p.UF_CLP
+
+    'MOD EXTRA: TODOs (plan y consolidado)
+    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_MENSUAL", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_VENTA", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_VENTA", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_VENTA", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", TODO_TEXT
+
+    'Costos mensuales (si existe Parametros; si no => TODO)
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", costosMensualesCLP
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", IIf(IsNumeric(costosMensualesCLP), "CLP", TODO_TEXT)
+
+    'OTROS_COSTOS_DIRECTOS_FIJOS: KR45 / meses_expuestos
+    WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_DIRECTOS_FIJOS", otrosCostosFijos
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS", "CLP"
+
+    'Condor Input (consolidado: no aplica)
+    WriteByHeader baseWS, headers, rowIndex, "CUT_OFF_RUN_OFF", vbNullString
+    WriteByHeader baseWS, headers, rowIndex, "FECHA_CUT_OFF", Empty
+    WriteByHeader baseWS, headers, rowIndex, "INFLACION", vbNullString
+    WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", vbNullString
+    WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD_(MENSUAL/UNICA)", vbNullString
+
+    'Carencia (si existe Parametros; si no => TODO)
+    WriteByHeader baseWS, headers, rowIndex, "MESES_GRATIS/CARENCIA", IIf(IsEmptyOrBlank(mesesCarencia), TODO_TEXT, mesesCarencia)
+
+    'Manual / Formulario
+    WriteByHeader baseWS, headers, rowIndex, "CUOTAS_PROMEDIO", p.CuotasPromedio
+    WriteByHeader baseWS, headers, rowIndex, "PROFIT_SHARING", p.ProfitSharing
+    WriteByHeader baseWS, headers, rowIndex, "PRIMA_CEDIDA", p.PrimaCedida
+    WriteByHeader baseWS, headers, rowIndex, "FORMULA_SINIESTRALIDAD_APLICA", p.FormulaSiniestralidadAplica
+    WriteByHeader baseWS, headers, rowIndex, "BRIM", p.Brim
+    WriteByHeader baseWS, headers, rowIndex, "OBSERVACIÓN", p.Observacion
+    WriteByHeader baseWS, headers, rowIndex, "PLAN_DE_ACCIÓN", p.PlanAccion
+    WriteByHeader baseWS, headers, rowIndex, "PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO", p.ProductoCuentaAsistencia
+    WriteByHeader baseWS, headers, rowIndex, "%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS)", p.DescuentoAsistenciaPct
+    WriteByHeader baseWS, headers, rowIndex, "TIENE_ECOSISTEMA_(SI/NO)", p.TieneEcosistema
+    WriteByHeader baseWS, headers, rowIndex, "CANAL_TMK_(SI/NO)", p.CanalTMK
+    WriteByHeader baseWS, headers, rowIndex, "ROP_(SI/NO)", p.ROP
+    WriteByHeader baseWS, headers, rowIndex, "BONIFICACION_ROP_(%)", p.BonificacionROPPct
+    WriteByHeader baseWS, headers, rowIndex, "VENTA_POR_PLANES_(SI/NO)", p.VentaPorPlanes
+    WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)", p.PolizaEsContinuacion
+
+    'BP Mensual consolidado
+    WriteByHeader baseWS, headers, rowIndex, "REASEGURO", reaseguroTxt
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_CEDIDO", siniestroCedido
+    WriteByHeader baseWS, headers, rowIndex, "RATIO_DE_ASISTENCIA_SOBRE_LA_NEP", ratioAsistSobreNEP
+
+    'Extras (se mantienen como en tu plantilla)
+    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
+    WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
+
+    WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
+    WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRec
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS_/_NEP", gastosDirPct
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS_/_NEP", gastosIndPct
+
+    'Campos sin fuente definida en reglas actuales
+    WriteByHeader baseWS, headers, rowIndex, "PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
+End Sub
+
+'===========================================================
+' PLANES + Tasa_Caida + Por_Riesgo
+'===========================================================
+Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Object, _
+                                ByVal tasaWS As Worksheet, ByVal tasaHeaders As Object, _
+                                ByVal porWS As Worksheet, ByVal porHeaders As Object, _
+                                ByRef nextRow As Long, ByRef nextId As Long, _
+                                ByRef p As tExportParams, ByVal socioAuto As String, _
+                                ByVal outWB As Workbook, ByVal planInputs As Object, _
+                                ByVal planOrder As Collection, ByVal bpFiles As Variant)
+
+    Dim i As Long
+    For i = 1 To planOrder.Count
+        Dim planName As String
+        planName = CStr(planOrder(i))
+
+        If Not WorksheetExists(outWB, planName) Then
+            Err.Raise vbObjectError + 7501, "AppendPlanesAndRates", "No existe hoja de plan '" & planName & "' en " & outWB.Name
+        End If
+
+        Dim ws As Worksheet
+        Set ws = outWB.Worksheets(planName)
+
+        Dim totalCol As Long
+        totalCol = FindTotalCol(ws, CONDOR_TOTAL_HEADER_ROW, CONDOR_MIN_DATA_COL)
+
+        Dim m As tMetrics
+        m = ReadCondorMetrics(ws, totalCol)
+
+        Dim d As Object
+        Set d = planInputs(planName)
+
+        Dim mesesVenta As Variant: mesesVenta = d("meses_venta")
+        Dim inflacionTxt As String: inflacionTxt = CStr(d("inflacion"))
+        Dim cutOffRunOffTxt As String: cutOffRunOffTxt = CStr(d("cut_off_run_off"))
+        Dim fechaCutOff As Variant: fechaCutOff = d("fecha_cut_off")
+        Dim periodicidadTxt As String: periodicidadTxt = CStr(d("periodicidad"))
+        Dim productTypeTxt As String: productTypeTxt = CStr(d("product_type"))
+        Dim loanDuration As Variant: loanDuration = d("loan_duration")
+
+        'Derivados Condor
+        Dim siniestralidad As Variant
+        If m.NEP <> 0# Then siniestralidad = m.Claims / m.NEP Else siniestralidad = Empty
+
+        Dim devolPct As Variant
+        If m.WrittenNetTax <> 0# Then devolPct = m.Devoluciones / m.WrittenNetTax Else devolPct = Empty
+
+        Dim primaClienteNeta As Variant
+        primaClienteNeta = CalcPrimaClienteNeta(m.GWP, m.Expuestos, m.Ventas, periodicidadTxt)
+
+        Dim ivaEfectivo As Variant, ivaRec As Variant
+        If m.WrittenNetTax <> 0# Then
+            ivaEfectivo = (m.GWP - m.WrittenNetTax) / m.WrittenNetTax
+            ivaRec = 0.19 - CDbl(ivaEfectivo)
+        Else
+            ivaEfectivo = Empty
+            ivaRec = Empty
+        End If
+
+        Dim gastosDirPct As Variant, gastosIndPct As Variant
+        If m.NEP <> 0# Then
+            gastosDirPct = m.GastosDirectosMonto / m.NEP
+            gastosIndPct = m.GastosIndirectosMonto / m.NEP
+        Else
+            gastosDirPct = Empty
+            gastosIndPct = Empty
+        End If
+
+        'BP (un solo open por plan para todo)
+        Dim costosMensualesCLP As Variant, mesesCarencia As Variant
+        Dim bpComPct As Variant, bpTasaEntrada As Variant, bpSinMedio As Variant
+        Dim bpOtrosCostosFijos As Variant, bpReaseguroTxt As Variant, bpSiniestroCedido As Variant, bpRatioAsist As Variant
+
+        Dim prFechaVenta As String
+        Dim prRiesgos As Variant, prCap As Variant, prSin As Variant, prTasa As Variant
+        Dim prN As Long
+
+        ReadBPPlanData bpFiles, planName, CDbl(p.UF_CLP), _
+            costosMensualesCLP, mesesCarencia, _
+            bpComPct, bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
+            prFechaVenta, prRiesgos, prCap, prSin, prTasa, prN
+
+        'Nuevo ID/row
+        Dim rowIndex As Long, idValue As Long
+        rowIndex = nextRow
+        idValue = nextId
+        nextRow = nextRow + 1
+        nextId = nextId + 1
+
+        'Escritura fila Base
+        FillBaseRow_Plan baseWS, headers, rowIndex, idValue, p, socioAuto, planName, _
+                         m, mesesVenta, inflacionTxt, cutOffRunOffTxt, fechaCutOff, periodicidadTxt, productTypeTxt, loanDuration, _
+                         primaClienteNeta, bpComPct, gastosDirPct, gastosIndPct, siniestralidad, devolPct, ivaEfectivo, ivaRec, _
+                         costosMensualesCLP, mesesCarencia, _
+                         bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
+                         bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist
+
+        'Tasa_Caida (bloque)
+        AppendTasaCaidaPlan tasaWS, tasaHeaders, idValue, planName, d
+
+        'Por_Riesgo (bloque, en el orden C.. luego D.. luego E..)
+        AppendPorRiesgoPlan porWS, porHeaders, idValue, planName, prFechaVenta, prRiesgos, prCap, prSin, prTasa, prN
+    Next i
+End Sub
+
+Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object, _
+                            ByVal rowIndex As Long, ByVal idValue As Long, _
+                            ByRef p As tExportParams, ByVal socioAuto As String, _
+                            ByVal planName As String, _
+                            ByRef m As tMetrics, _
+                            ByVal mesesVenta As Variant, ByVal inflacionTxt As String, _
+                            ByVal cutOffRunOffTxt As String, ByVal fechaCutOff As Variant, _
+                            ByVal periodicidadTxt As String, ByVal productTypeTxt As String, ByVal loanDuration As Variant, _
+                            ByVal primaClienteNeta As Variant, ByVal comPct As Variant, _
+                            ByVal gastosDirPct As Variant, ByVal gastosIndPct As Variant, _
+                            ByVal siniestralidad As Variant, ByVal devolPct As Variant, _
+                            ByVal ivaEfectivo As Variant, ByVal ivaRec As Variant, _
+                            ByVal costosMensualesCLP As Variant, ByVal mesesCarencia As Variant, _
+                            ByVal tasaEntrada As Variant, ByVal sinMedio As Variant, ByVal otrosCostosFijos As Variant, _
+                            ByVal reaseguroTxt As Variant, ByVal siniestroCedido As Variant, ByVal ratioAsistSobreNEP As Variant)
+
+    'Identidad
+    WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
+    WriteByHeader baseWS, headers, rowIndex, "CODIGO_TARIFA", p.CodigoTarifa
+    WriteByHeader baseWS, headers, rowIndex, "POLIZA", p.Poliza
+    WriteByHeader baseWS, headers, rowIndex, "SOCIO", socioAuto
+    WriteByHeader baseWS, headers, rowIndex, "PLAN", planName
+
+    'Condor Output
+    WriteByHeader baseWS, headers, rowIndex, "VENTAS", m.Ventas
+    WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNeta
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
+
+    'COMISIONES desde BP Mensual
+    WriteByHeader baseWS, headers, rowIndex, "COMISIONES", comPct
+
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirPct
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndPct
+
+    'Condor Input
+    WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", mesesVenta
+    WriteByHeader baseWS, headers, rowIndex, "INFLACION", inflacionTxt
+    WriteByHeader baseWS, headers, rowIndex, "CUT_OFF_RUN_OFF", cutOffRunOffTxt
+    WriteByHeader baseWS, headers, rowIndex, "FECHA_CUT_OFF", fechaCutOff
+    WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
+    WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD_(MENSUAL/UNICA)", periodicidadTxt
+
+    'LOAN_DURATION (regla exacta)
+    If IsPrimaUnicaText(periodicidadTxt) Then
+        WriteByHeader baseWS, headers, rowIndex, "LOAN_DURATION", loanDuration
+        'DURACION_MEDIA_MESES Single depende de "VENTA PRIMA UNICA" (pendiente)
+        WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", TODO_TEXT
+    Else
+        WriteByHeader baseWS, headers, rowIndex, "LOAN_DURATION", "N/A"
+        WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", CalcDuracionMedia(m.Expuestos, m.Ventas)
+    End If
+
+    'BP Mensual
+    WriteByHeader baseWS, headers, rowIndex, "TASA_DE_ENTRADA", tasaEntrada
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_MEDIO", sinMedio
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_SINIESTRO_MEDIO", "CLP"
+
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD_SOBRE_LA_NEP", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
+    WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", siniestralidad
+
+    'UF manual (formulario)
+    WriteByHeader baseWS, headers, rowIndex, "UF", p.UF_CLP
+
+    'MOD EXTRA: TODOs (plan y consolidado)
+    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_MENSUAL", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_VENTA", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_VENTA", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_VENTA", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", TODO_TEXT
+
+    'COSTOS_MENSUALES (si Parametros existe; si no => TODO)
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", costosMensualesCLP
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", IIf(IsNumeric(costosMensualesCLP), "CLP", TODO_TEXT)
+
+    'MESES_GRATIS/CARENCIA
+    WriteByHeader baseWS, headers, rowIndex, "MESES_GRATIS/CARENCIA", IIf(IsEmptyOrBlank(mesesCarencia), TODO_TEXT, mesesCarencia)
+
+    'OTROS_COSTOS_DIRECTOS_FIJOS: KR45/meses_expuestos
+    WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_DIRECTOS_FIJOS", otrosCostosFijos
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS", "CLP"
+
+    'Reaseguro / siniestro cedido / ratio asistencia (BP Mensual)
+    WriteByHeader baseWS, headers, rowIndex, "REASEGURO", reaseguroTxt
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_CEDIDO", siniestroCedido
+    WriteByHeader baseWS, headers, rowIndex, "RATIO_DE_ASISTENCIA_SOBRE_LA_NEP", ratioAsistSobreNEP
+
+    'Campos manuales (formulario)
+    WriteByHeader baseWS, headers, rowIndex, "CUOTAS_PROMEDIO", p.CuotasPromedio
+    WriteByHeader baseWS, headers, rowIndex, "PROFIT_SHARING", p.ProfitSharing
+    WriteByHeader baseWS, headers, rowIndex, "PRIMA_CEDIDA", p.PrimaCedida
+    WriteByHeader baseWS, headers, rowIndex, "FORMULA_SINIESTRALIDAD_APLICA", p.FormulaSiniestralidadAplica
+    WriteByHeader baseWS, headers, rowIndex, "BRIM", p.Brim
+    WriteByHeader baseWS, headers, rowIndex, "OBSERVACIÓN", p.Observacion
+    WriteByHeader baseWS, headers, rowIndex, "PLAN_DE_ACCIÓN", p.PlanAccion
+    WriteByHeader baseWS, headers, rowIndex, "PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO", p.ProductoCuentaAsistencia
+    WriteByHeader baseWS, headers, rowIndex, "%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS)", p.DescuentoAsistenciaPct
+    WriteByHeader baseWS, headers, rowIndex, "TIENE_ECOSISTEMA_(SI/NO)", p.TieneEcosistema
+    WriteByHeader baseWS, headers, rowIndex, "CANAL_TMK_(SI/NO)", p.CanalTMK
+    WriteByHeader baseWS, headers, rowIndex, "ROP_(SI/NO)", p.ROP
+    WriteByHeader baseWS, headers, rowIndex, "BONIFICACION_ROP_(%)", p.BonificacionROPPct
+    WriteByHeader baseWS, headers, rowIndex, "VENTA_POR_PLANES_(SI/NO)", p.VentaPorPlanes
+    WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)", p.PolizaEsContinuacion
+
+    'Auxiliares del listado
+    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
+    WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
+
+    WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
+    WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRec
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS_/_NEP", gastosDirPct
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS_/_NEP", gastosIndPct
+
+    WriteByHeader baseWS, headers, rowIndex, "PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
+End Sub
+
+'===========================================================
+' Tasa_Caida (rápido: escritura en bloque)
+'===========================================================
+Private Sub AppendTasaCaidaPlan(ByVal tasaWS As Worksheet, ByVal headers As Object, _
+                               ByVal planId As Long, ByVal planName As String, ByVal planDict As Object)
+
+    Dim tasa() As Double
+    tasa = planDict("tasa")
+
+    Dim n As Long
+    n = CLng(planDict("tasa_n"))
+    If n <= 0 Then Exit Sub
+
+    Dim outRow As Long
+    outRow = NextFreeRow(tasaWS, CLng(headers("ID_INTERNO")), 2)
+
+    Dim idCol As Long, perCol As Long, planCol As Long, tasaCol As Long
+    idCol = CLng(headers("ID_INTERNO"))
+    perCol = CLng(headers("PERIODO"))
+    planCol = CLng(headers("PLAN"))
+    tasaCol = CLng(headers("TASA"))
+
+    Dim arrID() As Variant, arrPer() As Variant, arrPlan() As Variant, arrTasa() As Variant
+    ReDim arrID(1 To n, 1 To 1)
+    ReDim arrPer(1 To n, 1 To 1)
+    ReDim arrPlan(1 To n, 1 To 1)
+    ReDim arrTasa(1 To n, 1 To 1)
+
+    Dim i As Long
+    For i = 1 To n
+        arrID(i, 1) = planId
+        arrPer(i, 1) = i
+        arrPlan(i, 1) = planName
+        arrTasa(i, 1) = tasa(i)
+    Next i
+
+    tasaWS.Range(tasaWS.Cells(outRow, idCol), tasaWS.Cells(outRow + n - 1, idCol)).Value2 = arrID
+    tasaWS.Range(tasaWS.Cells(outRow, perCol), tasaWS.Cells(outRow + n - 1, perCol)).Value2 = arrPer
+    tasaWS.Range(tasaWS.Cells(outRow, planCol), tasaWS.Cells(outRow + n - 1, planCol)).Value2 = arrPlan
+    tasaWS.Range(tasaWS.Cells(outRow, tasaCol), tasaWS.Cells(outRow + n - 1, tasaCol)).Value2 = arrTasa
+End Sub
+
+'===========================================================
+' Por_Riesgo (rápido + respeta el orden C.. D.. E..)
+'===========================================================
+Private Sub AppendPorRiesgoPlan(ByVal porWS As Worksheet, ByVal headers As Object, _
+                               ByVal planId As Long, ByVal planName As String, ByVal fechaVentaTxt As String, _
+                               ByVal riesgos As Variant, ByVal cap As Variant, ByVal sinM As Variant, ByVal tasa As Variant, _
+                               ByVal n As Long)
+
+    If n <= 0 Then Exit Sub
+
+    Dim outRow As Long
+    outRow = NextFreeRow(porWS, CLng(headers("ID_INTERNO")), 2)
+
+    Dim idCol As Long, fechaCol As Long, planCol As Long, riesgoCol As Long, metricaCol As Long, valorCol As Long
+    idCol = CLng(headers("ID_INTERNO"))
+    fechaCol = CLng(headers("FECHA_DE_VENTA"))
+    planCol = CLng(headers("PLAN"))
+    riesgoCol = CLng(headers("RIESGO"))
+    metricaCol = CLng(headers("METRICA"))
+    valorCol = CLng(headers("VALOR"))
+
+    'Total filas = 3*n (C.. luego D.. luego E..)
+    Dim totalRows As Long
+    totalRows = 3 * n
+
+    Dim arrID() As Variant, arrFecha() As Variant, arrPlan() As Variant
+    Dim arrRiesgo() As Variant, arrMetrica() As Variant, arrValor() As Variant
+
+    ReDim arrID(1 To totalRows, 1 To 1)
+    ReDim arrFecha(1 To totalRows, 1 To 1)
+    ReDim arrPlan(1 To totalRows, 1 To 1)
+    ReDim arrRiesgo(1 To totalRows, 1 To 1)
+    ReDim arrMetrica(1 To totalRows, 1 To 1)
+    ReDim arrValor(1 To totalRows, 1 To 1)
+
+    Dim r As Long, idx As Long
+    idx = 0
+
+    '1) Capital Asegurado (col C)
+    For r = 1 To n
+        idx = idx + 1
+        arrID(idx, 1) = planId
+        arrFecha(idx, 1) = fechaVentaTxt
+        arrPlan(idx, 1) = planName
+        arrRiesgo(idx, 1) = riesgos(r)
+        arrMetrica(idx, 1) = "Capital Asegurado"
+        arrValor(idx, 1) = cap(r)
+    Next r
+
+    '2) Siniestro Medio (col D)
+    For r = 1 To n
+        idx = idx + 1
+        arrID(idx, 1) = planId
+        arrFecha(idx, 1) = fechaVentaTxt
+        arrPlan(idx, 1) = planName
+        arrRiesgo(idx, 1) = riesgos(r)
+        arrMetrica(idx, 1) = "Siniestro Medio"
+        arrValor(idx, 1) = sinM(r)
+    Next r
+
+    '3) Tasa Entrada (col E)
+    For r = 1 To n
+        idx = idx + 1
+        arrID(idx, 1) = planId
+        arrFecha(idx, 1) = fechaVentaTxt
+        arrPlan(idx, 1) = planName
+        arrRiesgo(idx, 1) = riesgos(r)
+        arrMetrica(idx, 1) = "Tasa Entrada"
+        arrValor(idx, 1) = tasa(r)
+    Next r
+
+    porWS.Range(porWS.Cells(outRow, idCol), porWS.Cells(outRow + totalRows - 1, idCol)).Value2 = arrID
+    porWS.Range(porWS.Cells(outRow, fechaCol), porWS.Cells(outRow + totalRows - 1, fechaCol)).Value2 = arrFecha
+    porWS.Range(porWS.Cells(outRow, planCol), porWS.Cells(outRow + totalRows - 1, planCol)).Value2 = arrPlan
+    porWS.Range(porWS.Cells(outRow, riesgoCol), porWS.Cells(outRow + totalRows - 1, riesgoCol)).Value2 = arrRiesgo
+    porWS.Range(porWS.Cells(outRow, metricaCol), porWS.Cells(outRow + totalRows - 1, metricaCol)).Value2 = arrMetrica
+    porWS.Range(porWS.Cells(outRow, valorCol), porWS.Cells(outRow + totalRows - 1, valorCol)).Value2 = arrValor
+End Sub
+
+'===========================================================
+' Métricas desde Condor Output
+'===========================================================
+Private Type tMetrics
+    Ventas As Double
+    GWP As Double
+    WrittenNetTax As Double
+    Devoluciones As Double
+    NEP As Double
+    ComisionesMonto As Double
+    Claims As Double
+    Expuestos As Double
+    GastosDirectosMonto As Double
+    GastosIndirectosMonto As Double
+End Type
+
+Private Function ReadCondorMetrics(ByVal ws As Worksheet, ByVal totalCol As Long) As tMetrics
+    Dim m As tMetrics
+
+    m.Ventas = CDbl(ValSafe(ws.Cells(ROW_VENTAS, totalCol).Value2))
+    m.GWP = CDbl(ValSafe(ws.Cells(ROW_GWP, totalCol).Value2))
+    m.WrittenNetTax = CDbl(ValSafe(ws.Cells(ROW_WRITTEN_NET_TAX, totalCol).Value2))
+    m.Devoluciones = CDbl(ValSafe(ws.Cells(ROW_DEVOLUCIONES, totalCol).Value2))
+    m.NEP = CDbl(ValSafe(ws.Cells(ROW_NEP, totalCol).Value2))
+    m.ComisionesMonto = CDbl(ValSafe(ws.Cells(ROW_COMISIONES_MONTO, totalCol).Value2))
+    m.Claims = CDbl(ValSafe(ws.Cells(ROW_CLAIMS, totalCol).Value2))
+
+    m.Expuestos = SumRowFromCToLastNonEmpty(ws, ROW_EXPUESTOS)
+
+    m.GastosDirectosMonto = CDbl(ValSafe(ws.Cells(191, totalCol).Value2)) + CDbl(ValSafe(ws.Cells(192, totalCol).Value2))
+    m.GastosIndirectosMonto = CDbl(ValSafe(ws.Cells(196, totalCol).Value2)) + CDbl(ValSafe(ws.Cells(197, totalCol).Value2))
+
+    ReadCondorMetrics = m
+End Function
+
+Private Function SumRowFromCToLastNonEmpty(ByVal ws As Worksheet, ByVal rowNum As Long) As Double
+    Dim lastCol As Long
+    lastCol = ws.Cells(rowNum, ws.Columns.Count).End(xlToLeft).Column
+    If lastCol < CONDOR_MIN_DATA_COL Then lastCol = CONDOR_MIN_DATA_COL
+
+    Dim c As Long, v As Variant, acc As Double
+    acc = 0#
+    For c = CONDOR_MIN_DATA_COL To lastCol
+        v = ws.Cells(rowNum, c).Value2
+        If IsNumeric(v) Then acc = acc + CDbl(v)
+    Next c
+    SumRowFromCToLastNonEmpty = acc
+End Function
+
+'===========================================================
+' Cálculos derivados
+'===========================================================
+Private Function CalcDuracionMedia(ByVal expuestos As Double, ByVal ventas As Double) As Variant
+    If ventas = 0# Then
+        CalcDuracionMedia = Empty
+    Else
+        CalcDuracionMedia = expuestos / ventas
+    End If
+End Function
+
+Private Function CalcPrimaClienteNeta(ByVal gwp As Double, ByVal expuestos As Double, ByVal ventas As Double, ByVal periodicidadTxt As String) As Variant
+    If IsMensualText(periodicidadTxt) Then
+        If expuestos <> 0# Then
+            CalcPrimaClienteNeta = gwp / expuestos
+        Else
+            CalcPrimaClienteNeta = Empty
+        End If
+        Exit Function
+    End If
+
+    If IsPrimaUnicaText(periodicidadTxt) Then
+        If ventas <> 0# Then
+            CalcPrimaClienteNeta = gwp / ventas
+        Else
+            CalcPrimaClienteNeta = Empty
+        End If
+        Exit Function
+    End If
+
+    CalcPrimaClienteNeta = TODO_TEXT
+End Function
+
+'===========================================================
+' BP CONSOLIDADO: Parametros (opcional) + BP Mensual
+' - UF NO se lee desde BP. UF viene manual (ufCLP).
+' - Asistencia mensual / Asistencia venta / Costos venta => TODO (no se leen).
+'===========================================================
+Private Sub ReadBPConsolidadoData(ByVal files As Variant, ByVal ufCLP As Double, _
+    ByRef costosMensualesCLP As Variant, ByRef mesesCarencia As Variant, _
+    ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
+    ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant)
+
+    Dim consPath As String
+    consPath = FS_FindBestFileByTokenFiltered(files, "consolidado", True)
+
+    If Len(consPath) = 0 Then
+        costosMensualesCLP = TODO_TEXT: mesesCarencia = TODO_TEXT
+        comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
+        reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
+        Exit Sub
+    End If
+
+    Dim wb As Workbook
+    Set wb = Workbooks.Open(Filename:=consPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+
+    'Parametros (opcional): solo para COSTOS_MENSUALES + MESES_CARENCIA
+    If WorksheetExists(wb, BP_PARAMS_SHEET) Then
+        Dim wsP As Worksheet
+        Set wsP = wb.Worksheets(BP_PARAMS_SHEET)
+
+        'COSTOS_MENSUALES = (I53 + F55 + (C6*C14)) * UF_CLP
+        Dim asistUF As Double
+        asistUF = CDbl(ValSafe(wsP.Range(BP_PARAMS_ASIST_MENSUAL).Value2))
+
+        Dim costoRecaudF55 As Double
+        costoRecaudF55 = CDbl(ValSafe(wsP.Range("F55").Value2))
+
+        Dim primaNetaC6 As Double
+        primaNetaC6 = CDbl(ValSafe(wsP.Range("C6").Value2))
+
+        Dim pctBTG_C14 As Double
+        pctBTG_C14 = CDbl(ValSafe(wsP.Range("C14").Value2))
+
+        Dim btgUF As Double
+        btgUF = primaNetaC6 * pctBTG_C14
+
+        Dim totalUF As Double
+        totalUF = asistUF + costoRecaudF55 + btgUF
+
+        costosMensualesCLP = totalUF * ufCLP
+        mesesCarencia = wsP.Range(BP_PARAMS_MESES_CARENCIA).Value2
+    Else
+        costosMensualesCLP = TODO_TEXT
+        mesesCarencia = TODO_TEXT
+    End If
+
+    'BP Mensual (obligatorio para los nuevos cálculos)
+    If WorksheetExists(wb, BP_MENSUAL_SHEET) Then
+        Dim wsM As Worksheet
+        Set wsM = wb.Worksheets(BP_MENSUAL_SHEET)
+        ReadBPMensualVars wsM, comPct, tasaEntrada, sinMedio, otrosCostosFijos, reaseguroTxt, siniestroCedido, ratioAsistSobreNEP
+    Else
+        comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
+        reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
+    End If
+
+    wb.Close SaveChanges:=False
+End Sub
+
+'===========================================================
+' BP PLAN: Parametros + BP Mensual + Por_Riesgo (todo en un open)
+' - UF NO se lee desde BP. UF viene manual (ufCLP).
+' - Asistencia mensual / Asistencia venta / Costos venta => TODO (no se leen).
+'===========================================================
+Private Sub ReadBPPlanData(ByVal files As Variant, ByVal planName As String, ByVal ufCLP As Double, _
+    ByRef costosMensualesCLP As Variant, ByRef mesesCarencia As Variant, _
+    ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
+    ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant, _
+    ByRef prFechaVenta As String, ByRef prRiesgos As Variant, ByRef prCap As Variant, ByRef prSin As Variant, ByRef prTasa As Variant, ByRef prN As Long)
+
+    Dim planPath As String
+    planPath = FS_FindBestFileByTokenFiltered(files, planName, False)
+
+    If Len(planPath) = 0 Then
+        costosMensualesCLP = TODO_TEXT: mesesCarencia = TODO_TEXT
+        comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
+        reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
+        prFechaVenta = vbNullString: prRiesgos = Empty: prCap = Empty: prSin = Empty: prTasa = Empty: prN = 0
+        Exit Sub
+    End If
+
+    Dim wb As Workbook
+    Set wb = Workbooks.Open(Filename:=planPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
+
+    'Parametros (obligatorio para Por_Riesgo + meses carencia + (opcional) costos mensuales)
+    If WorksheetExists(wb, BP_PARAMS_SHEET) Then
+        Dim wsP As Worksheet
+        Set wsP = wb.Worksheets(BP_PARAMS_SHEET)
+
+        'COSTOS_MENSUALES = (I53 + F55 + (C6*C14)) * UF_CLP
+        Dim asistUF As Double
+        asistUF = CDbl(ValSafe(wsP.Range(BP_PARAMS_ASIST_MENSUAL).Value2))
+
+        Dim costoRecaudF55 As Double
+        costoRecaudF55 = CDbl(ValSafe(wsP.Range("F55").Value2))
+
+        Dim primaNetaC6 As Double
+        primaNetaC6 = CDbl(ValSafe(wsP.Range("C6").Value2))
+
+        Dim pctBTG_C14 As Double
+        pctBTG_C14 = CDbl(ValSafe(wsP.Range("C14").Value2))
+
+        Dim btgUF As Double
+        btgUF = primaNetaC6 * pctBTG_C14
+
+        Dim totalUF As Double
+        totalUF = asistUF + costoRecaudF55 + btgUF
+        costosMensualesCLP = totalUF * ufCLP
+
+        mesesCarencia = wsP.Range(BP_PARAMS_MESES_CARENCIA).Value2
+
+        'Por_Riesgo: lo extraemos desde Parametros
+        ExtractPorRiesgo wsP, prFechaVenta, prRiesgos, prCap, prSin, prTasa, prN
+    Else
+        costosMensualesCLP = TODO_TEXT
+        mesesCarencia = TODO_TEXT
+        prFechaVenta = vbNullString: prRiesgos = Empty: prCap = Empty: prSin = Empty: prTasa = Empty: prN = 0
+    End If
+
+    'BP Mensual (obligatorio para comisiones/tasa/sin medio/otros costos/reaseguro/etc)
+    If WorksheetExists(wb, BP_MENSUAL_SHEET) Then
+        Dim wsM As Worksheet
+        Set wsM = wb.Worksheets(BP_MENSUAL_SHEET)
+        ReadBPMensualVars wsM, comPct, tasaEntrada, sinMedio, otrosCostosFijos, reaseguroTxt, siniestroCedido, ratioAsistSobreNEP
+    Else
+        comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
+        reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
+    End If
+
+    wb.Close SaveChanges:=False
+End Sub
+
+'===========================================================
+' Lee variables desde BP Mensual (KR**)
+'===========================================================
+Private Sub ReadBPMensualVars(ByVal wsM As Worksheet, _
+    ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
+    ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant)
+
+    'COMISIONES = KR20/KR12
+    Dim vCom As Double, vPrima As Double
+    vCom = CDbl(ValSafe(wsM.Range(BP_KR_COMISION_BRUTA).Value2))
+    vPrima = CDbl(ValSafe(wsM.Range(BP_KR_PRIMA_BRUTA).Value2))
+    If vPrima <> 0# Then comPct = vCom / vPrima Else comPct = Empty
+
+    'TASA_DE_ENTRADA = KR36/KR8
+    Dim vTE_Num As Double, vTE_Den As Double
+    vTE_Num = CDbl(ValSafe(wsM.Range(BP_KR_TASA_ENTRADA_NUM).Value2))
+    vTE_Den = CDbl(ValSafe(wsM.Range(BP_KR_TASA_ENTRADA_DEN).Value2))
+    If vTE_Den <> 0# Then tasaEntrada = vTE_Num / vTE_Den Else tasaEntrada = Empty
+
+    'SINIESTRO_MEDIO = KR37/KR36
+    Dim vSM_Num As Double, vSM_Den As Double
+    vSM_Num = CDbl(ValSafe(wsM.Range(BP_KR_SIN_MEDIO_NUM).Value2))
+    vSM_Den = CDbl(ValSafe(wsM.Range(BP_KR_SIN_MEDIO_DEN).Value2))
+    If vSM_Den <> 0# Then sinMedio = vSM_Num / vSM_Den Else sinMedio = Empty
+
+    'REASEGURO (KR50>0 => proporcional)
+    Dim vRea As Double
+    vRea = CDbl(ValSafe(wsM.Range(BP_CONS_REASEGURO_CELL).Value2))
+    If vRea > 0# Then reaseguroTxt = "Proporcional" Else reaseguroTxt = "Sin Reaseguro"
+
+    'SINIESTRO_CEDIDO = KR49
+    siniestroCedido = wsM.Range(BP_CONS_SINIESTRO_CEDIDO_CELL).Value2
+
+    'RATIO_ASISTENCIA_SOBRE_NEP = KR39/KR18
+    Dim vAsist As Double, vNep As Double
+    vAsist = CDbl(ValSafe(wsM.Range(BP_CONS_ASIST_CELL).Value2))
+    vNep = CDbl(ValSafe(wsM.Range(BP_CONS_NEP_CELL).Value2))
+    If vNep <> 0# Then ratioAsistSobreNEP = vAsist / vNep Else ratioAsistSobreNEP = Empty
+
+    'OTROS_COSTOS_DIRECTOS_FIJOS = KR45 / meses_expuestos (fila 7 desde C hasta primer 0)
+    Dim mesesExp As Long
+    mesesExp = CountMesesExpuestos_BP(wsM)
+
+    Dim vOtros As Double
+    vOtros = CDbl(ValSafe(wsM.Range(BP_KR_OTROS_COSTOS_FIJOS).Value2))
+
+    If mesesExp > 0 Then
+        otrosCostosFijos = vOtros / mesesExp
+    Else
+        otrosCostosFijos = Empty
+    End If
+End Sub
+
+Private Function CountMesesExpuestos_BP(ByVal wsM As Worksheet) As Long
+    Dim lastCol As Long
+    lastCol = wsM.Cells(BP_MES_EXP_ROW, wsM.Columns.Count).End(xlToLeft).Column
+    If lastCol < BP_MES_EXP_COL_START Then lastCol = BP_MES_EXP_COL_START
+
+    Dim c As Long, v As Double, cnt As Long
+    cnt = 0
+    For c = BP_MES_EXP_COL_START To lastCol
+        v = CDbl(ValSafe(wsM.Cells(BP_MES_EXP_ROW, c).Value2))
+        If v = 0# Then Exit For
+        cnt = cnt + 1
+    Next c
+
+    CountMesesExpuestos_BP = cnt
+End Function
+
+'===========================================================
+' Por_Riesgo desde Parametros
+'===========================================================
+Private Sub ExtractPorRiesgo(ByVal wsP As Worksheet, _
+    ByRef fechaVentaTxt As String, ByRef riesgos As Variant, ByRef cap As Variant, ByRef sinM As Variant, ByRef tasa As Variant, ByRef n As Long)
+
+    fechaVentaTxt = FormatDate_DDMMYYYY(wsP.Range(PR_FECHA_VENTA_CELL).Value2)
+
+    Dim lastRow As Long
+    lastRow = MaxLastRowAny(wsP, PR_TABLE_START_ROW, Array(PR_COL_RIESGO, PR_COL_CAPITAL, PR_COL_SIN_MEDIO, PR_COL_TASA_ENTR))
+
+    If lastRow < PR_TABLE_START_ROW Then
+        riesgos = Empty: cap = Empty: sinM = Empty: tasa = Empty: n = 0
+        Exit Sub
+    End If
+
+    n = lastRow - PR_TABLE_START_ROW + 1
+
+    ReDim riesgos(1 To n) As String
+    ReDim cap(1 To n) As Double
+    ReDim sinM(1 To n) As Double
+    ReDim tasa(1 To n) As Double
+
+    Dim r As Long, idx As Long
+    idx = 0
+    For r = PR_TABLE_START_ROW To lastRow
+        idx = idx + 1
+
+        riesgos(idx) = Trim$(CStr(wsP.Cells(r, PR_COL_RIESGO).Value2))
+
+        'Regla clave: si viene vacío, es 0. Y NO paramos aunque haya vacíos.
+        cap(idx) = CDbl(ValSafe(wsP.Cells(r, PR_COL_CAPITAL).Value2))
+        sinM(idx) = CDbl(ValSafe(wsP.Cells(r, PR_COL_SIN_MEDIO).Value2))
+        tasa(idx) = CDbl(ValSafe(wsP.Cells(r, PR_COL_TASA_ENTR).Value2))
+    Next r
+End Sub
+
+Private Function MaxLastRowAny(ByVal ws As Worksheet, ByVal startRow As Long, ByVal cols As Variant) As Long
+    Dim i As Long, c As Long, lr As Long, best As Long
+    best = startRow - 1
+
+    For i = LBound(cols) To UBound(cols)
+        c = CLng(cols(i))
+        lr = ws.Cells(ws.Rows.Count, c).End(xlUp).Row
+        If lr > best Then best = lr
+    Next i
+
+    MaxLastRowAny = best
+End Function
+
+Private Function FormatDate_DDMMYYYY(ByVal v As Variant) As String
+    If IsDate(v) Then
+        FormatDate_DDMMYYYY = Format$(CDate(v), "dd-mm-yyyy")
+    ElseIf IsNumeric(v) Then
+        On Error Resume Next
+        FormatDate_DDMMYYYY = Format$(CDate(v), "dd-mm-yyyy")
+        On Error GoTo 0
+        If Len(FormatDate_DDMMYYYY) = 0 Then FormatDate_DDMMYYYY = Trim$(CStr(v))
+    Else
+        FormatDate_DDMMYYYY = Trim$(CStr(v))
+    End If
+End Function
+
+'===========================================================
+' Files: listar / match (solo BPs)
+'===========================================================
+Private Function FS_ListExcelFilesInFolder(ByVal folderPath As String, ByVal excludeRepo As String, ByVal excludeCondorIn As String, ByVal excludeCondorOut As String) As Variant
+    Dim f As String, full As String
+    Dim col As Collection: Set col = New Collection
+
+    If Right$(folderPath, 1) <> "\" Then folderPath = folderPath & "\"
+
+    f = Dir(folderPath & "*.xls*")
+    Do While Len(f) > 0
+        If Left$(f, 2) <> "~$" Then
+            full = folderPath & f
+
+            If StrComp(full, excludeRepo, vbTextCompare) <> 0 _
+                And StrComp(full, excludeCondorIn, vbTextCompare) <> 0 _
+                And StrComp(full, excludeCondorOut, vbTextCompare) <> 0 Then
+
+                Dim fn As String
+                fn = LCase$(f)
+
+                If Left$(fn, Len("bpinputtemplate")) <> "bpinputtemplate" Then
+                    If Left$(fn, Len("results_bpinputtemplate")) <> "results_bpinputtemplate" Then
+                        col.Add full
+                    End If
+                End If
+            End If
+        End If
+        f = Dir()
+    Loop
+
+    If col.Count = 0 Then Exit Function
+
+    Dim arr() As String, i As Long
+    ReDim arr(0 To col.Count - 1)
+    For i = 1 To col.Count
+        arr(i - 1) = CStr(col(i))
+    Next i
+
+    FS_ListExcelFilesInFolder = arr
+End Function
+
+Private Sub FS_SortFilesNatural(ByRef files As Variant)
+    If IsEmpty(files) Then Exit Sub
+    FS_QuickSortNatural files, LBound(files), UBound(files)
+End Sub
+
+Private Sub FS_QuickSortNatural(ByRef arr As Variant, ByVal lo As Long, ByVal hi As Long)
+    Dim i As Long, j As Long
+    Dim pivot As String, tmp As String
+
+    i = lo: j = hi
+    pivot = arr((lo + hi) \ 2)
+
+    Do While i <= j
+        Do While FS_NaturalCompare(arr(i), pivot) < 0
+            i = i + 1
+        Loop
+        Do While FS_NaturalCompare(arr(j), pivot) > 0
+            j = j - 1
+        Loop
+
+        If i <= j Then
+            tmp = arr(i): arr(i) = arr(j): arr(j) = tmp
+            i = i + 1: j = j - 1
+        End If
+    Loop
+
+    If lo < j Then FS_QuickSortNatural arr, lo, j
+    If i < hi Then FS_QuickSortNatural arr, i, hi
+End Sub
+
+Private Function FS_NaturalCompare(ByVal a As String, ByVal b As String) As Long
+    Dim i As Long, j As Long
+    Dim ca As String, cb As String
+    Dim na As String, nb As String
+
+    a = LCase$(GetFileFromFullName(a))
+    b = LCase$(GetFileFromFullName(b))
+
+    i = 1: j = 1
+    Do While i <= Len(a) And j <= Len(b)
+        ca = Mid$(a, i, 1)
+        cb = Mid$(b, j, 1)
+
+        If FS_IsDigit(ca) And FS_IsDigit(cb) Then
+            na = FS_ReadNumber(a, i)
+            nb = FS_ReadNumber(b, j)
+
+            If CLng(na) <> CLng(nb) Then
+                FS_NaturalCompare = Sgn(CLng(na) - CLng(nb))
+                Exit Function
+            End If
+        Else
+            If ca <> cb Then
+                FS_NaturalCompare = Sgn(StrComp(ca, cb, vbTextCompare))
+                Exit Function
+            End If
+            i = i + 1
+            j = j + 1
+        End If
+    Loop
+
+    FS_NaturalCompare = Sgn(Len(a) - Len(b))
+End Function
+
+Private Function FS_IsDigit(ByVal ch As String) As Boolean
+    FS_IsDigit = (ch >= "0" And ch <= "9")
+End Function
+
+Private Function FS_ReadNumber(ByVal s As String, ByRef idx As Long) As String
+    Dim startPos As Long
+    startPos = idx
+    Do While idx <= Len(s) And FS_IsDigit(Mid$(s, idx, 1))
+        idx = idx + 1
+    Loop
+    FS_ReadNumber = Mid$(s, startPos, idx - startPos)
+End Function
+
+Private Function FS_FindBestFileByTokenFiltered(ByVal files As Variant, ByVal token As String, ByVal filterConsolidado As Boolean) As String
+    Dim best As String
+    Dim bestScore As Long
+    Dim i As Long, fn As String
+    Dim t As String
+
+    t = LCase$(Trim$(token))
+    If Len(t) = 0 Then Exit Function
+
+    bestScore = 2147483647
+
+    For i = LBound(files) To UBound(files)
+        fn = LCase$(GetFileFromFullName(CStr(files(i))))
+
+        If filterConsolidado Then
+            If InStr(1, fn, "consolidado", vbTextCompare) = 0 Then GoTo NextI
+        End If
+
+        If InStr(1, fn, t, vbTextCompare) > 0 Then
+            Dim score As Long
+            score = Len(fn)
+            If score < bestScore Then
+                bestScore = score
+                best = CStr(files(i))
+            End If
+        End If
+NextI:
+    Next i
+
+    FS_FindBestFileByTokenFiltered = best
+End Function
+
+'===========================================================
+' Helpers básicos
+'===========================================================
+Private Function ParseSemicolonList(ByVal rawText As String) As Collection
+    Dim col As Collection: Set col = New Collection
+    Dim seen As Object: Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = vbTextCompare
+
+    rawText = Trim$(rawText)
+    If Len(rawText) = 0 Then
+        Set ParseSemicolonList = col
+        Exit Function
+    End If
+
+    Dim parts As Variant, i As Long, s As String
+    parts = Split(rawText, ";")
+    For i = LBound(parts) To UBound(parts)
+        s = Trim$(CStr(parts(i)))
+        If Len(s) > 0 Then
+            If Not seen.Exists(UCase$(s)) Then
+                col.Add s
+                seen.Add UCase$(s), True
+            End If
+        End If
+    Next i
+
+    Set ParseSemicolonList = col
+End Function
+
+Private Function WorksheetExists(ByVal wb As Workbook, ByVal sheetName As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = wb.Worksheets(sheetName)
+    On Error GoTo 0
+    WorksheetExists = Not ws Is Nothing
+End Function
+
+Private Function GetWorksheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
+    If Not WorksheetExists(wb, sheetName) Then
+        Err.Raise vbObjectError + 9001, "GetWorksheet", "No existe la hoja '" & sheetName & "' en " & wb.Name
+    End If
+    Set GetWorksheet = wb.Worksheets(sheetName)
+End Function
+
+Private Function BuildHeaderMap(ByVal ws As Worksheet, ByVal headerRow As Long) As Object
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = vbTextCompare
+
+    Dim lastCol As Long
+    lastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+    If lastCol < 1 Then lastCol = 1
+
+    Dim c As Long, h As String
+    For c = 1 To lastCol
+        h = Trim$(CStr(ws.Cells(headerRow, c).Value2))
+        If Len(h) > 0 Then
+            If Not dict.Exists(h) Then dict.Add h, c
+        End If
+    Next c
+
+    Set BuildHeaderMap = dict
+End Function
+
+Private Sub WriteByHeader(ByVal ws As Worksheet, ByVal headers As Object, ByVal rowIndex As Long, ByVal headerName As String, ByVal value As Variant)
+    ws.Cells(rowIndex, CLng(headers(headerName))).Value2 = value
+End Sub
+
+Private Function NextIdFromHeader(ByVal ws As Worksheet, ByVal idCol As Long, ByVal startRow As Long) As Long
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, idCol).End(xlUp).Row
+    If lastRow < startRow Then
+        NextIdFromHeader = 1
+        Exit Function
+    End If
+
+    Dim maxId As Long, r As Long, v As Variant
+    maxId = 0
+    For r = startRow To lastRow
+        v = ws.Cells(r, idCol).Value2
+        If IsNumeric(v) Then
+            If CLng(v) > maxId Then maxId = CLng(v)
+        End If
+    Next r
+
+    NextIdFromHeader = maxId + 1
+End Function
+
+Private Function NextFreeRow(ByVal ws As Worksheet, ByVal idCol As Long, ByVal startRow As Long) As Long
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, idCol).End(xlUp).Row
+    If lastRow < startRow Then
+        NextFreeRow = startRow
+    Else
+        NextFreeRow = lastRow + 1
+    End If
+End Function
+
+Private Function ReadCell(ByVal wb As Workbook, ByVal wsName As String, ByVal addr As String) As Variant
+    ReadCell = wb.Worksheets(wsName).Range(addr).Value2
+End Function
+
+Private Function ValSafe(ByVal v As Variant) As Double
+    If IsError(v) Or IsEmpty(v) Or IsNull(v) Or (VarType(v) = vbString And Len(Trim$(CStr(v))) = 0) Then
+        ValSafe = 0#
+    ElseIf IsNumeric(v) Then
+        ValSafe = CDbl(v)
+    Else
+        ValSafe = CDbl(Val(v))
+    End If
+End Function
+
+Private Function FindTotalCol(ByVal ws As Worksheet, ByVal headerRow As Long, ByVal startCol As Long) As Long
+    Dim lastCol As Long, c As Long, h As String
+    lastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+    If lastCol < startCol Then lastCol = startCol
+
+    For c = startCol To lastCol
+        h = Trim$(CStr(ws.Cells(headerRow, c).Value2))
+        If StrComp(h, CONDOR_TOTAL_HEADER_TEXT, vbTextCompare) = 0 Then
+            FindTotalCol = c
+            Exit Function
+        End If
+    Next c
+
+    FindTotalCol = lastCol
+End Function
+
+Private Function GetFolderFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 2101, "GetFolderFromFullName", "Ruta inválida: " & fullName
+    GetFolderFromFullName = Left$(fullName, p)
+End Function
+
+Private Function GetFileFromFullName(ByVal fullName As String) As String
+    Dim p As Long
+    p = InStrRev(fullName, "\")
+    If p = 0 Then Err.Raise vbObjectError + 2102, "GetFileFromFullName", "Ruta inválida: " & fullName
+    GetFileFromFullName = Mid$(fullName, p + 1)
+End Function

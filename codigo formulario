@@ -23,9 +23,7 @@ Private Sub UserForm_Initialize()
     SyncConditionalFields
 End Sub
 
-'========================
 ' Clicks toggles
-'========================
 Private Sub tglROP_Click(): ApplyToggleCaption "tglROP": SyncConditionalFields: End Sub
 Private Sub tglVentaPorPlanes_Click(): ApplyToggleCaption "tglVentaPorPlanes": SyncConditionalFields: End Sub
 
@@ -110,7 +108,7 @@ Private Sub cmdExportar_Click()
         p.PolizaEsContinuacion = "NO"
     End If
 
-    'Validación central (del módulo)
+    'Validación central del módulo
     ValidateManualFields p
 
     OutParams = p
@@ -122,9 +120,7 @@ EH:
     MsgBox Err.Description, vbExclamation
 End Sub
 
-'========================
 ' UI helpers
-'========================
 Private Sub SyncConditionalFields()
     'ROP -> Bonificación visible solo si ROP=SI
     SetVisibleEnabled "txtBonificacionROPPct", (ToggleToSiNo("tglROP") = "SI")

@@ -1,0 +1,166 @@
+Option Explicit
+
+Private Sub SyncSiNo(ByVal t As MSForms.ToggleButton)
+    'Regla visual:
+    ' - apretado => muestra "SI"
+    ' - suelto   => queda en blanco (pero internamente lo convertimos a "NO")
+    If t.Value Then
+        t.Caption = "SI"
+    Else
+        t.Caption = vbNullString
+    End If
+End Sub
+
+Private Function ToggleToSiNo(ByVal t As MSForms.ToggleButton) As String
+    If t.Value Then ToggleToSiNo = "SI" Else ToggleToSiNo = "NO"
+End Function
+
+Private Sub UpdateROPState()
+    'Si ROP = NO, deshabilitamos bonificación (igual el macro lo deja en N/A)
+    txtBonificacionROPPct.Enabled = (tglROP.Value = True)
+    If Not tglROP.Value Then
+        txtBonificacionROPPct.Text = vbNullString
+    End If
+End Sub
+
+Private Function ParseNumber(ByVal raw As String) As Variant
+    Dim s As String
+    s = Trim$(raw)
+
+    If Len(s) = 0 Then
+        ParseNumber = Empty
+        Exit Function
+    End If
+
+    Dim decSep As String, thouSep As String
+    decSep = Application.International(xlDecimalSeparator)
+    thouSep = Application.International(xlThousandsSeparator)
+
+    'Quitar separador de miles
+    If Len(thouSep) > 0 Then s = Replace(s, thouSep, vbNullString)
+
+    'Alinear decimal a la config local
+    If decSep = "," Then
+        s = Replace(s, ".", ",")
+    Else
+        s = Replace(s, ",", ".")
+    End If
+
+    If IsNumeric(s) Then
+        ParseNumber = CDbl(s)
+    Else
+        ParseNumber = CVErr(xlErrValue)
+    End If
+End Function
+
+Private Sub RaiseIfBadNumber(ByVal fieldLabel As String, ByVal v As Variant)
+    If IsError(v) Then Err.Raise vbObjectError + 6001, "UserForm1", fieldLabel & " debe ser numérico."
+End Sub
+
+Private Sub UserForm_Initialize()
+    'Dejar todo en NO visualmente (blanco)
+    SyncSiNo tglProductoCuentaAsistencia
+    SyncSiNo tglTieneEcosistema
+    SyncSiNo tglCanalTMK
+    SyncSiNo tglROP
+    SyncSiNo tglVentaPorPlanes
+
+    'Opcional: por defecto cerrar repo al terminar
+    tglCerrarRepo.Value = True
+    SyncSiNo tglCerrarRepo
+
+    UpdateROPState
+End Sub
+
+
+Private Sub tglProductoCuentaAsistencia_Click(): SyncSiNo tglProductoCuentaAsistencia: End Sub
+Private Sub tglTieneEcosistema_Click():         SyncSiNo tglTieneEcosistema:         End Sub
+Private Sub tglCanalTMK_Click():                SyncSiNo tglCanalTMK:                End Sub
+Private Sub tglVentaPorPlanes_Click():          SyncSiNo tglVentaPorPlanes:          End Sub
+Private Sub tglCerrarRepo_Click():              SyncSiNo tglCerrarRepo:              End Sub
+
+Private Sub tglROP_Click()
+    SyncSiNo tglROP
+    UpdateROPState
+End Sub
+
+'========================
+' Botones
+'========================
+Private Sub cmdCancelar_Click()
+    Unload Me
+End Sub
+
+Private Sub cmdExportar_Click()
+    On Error GoTo EH
+
+    Dim p As tExportParams
+
+    p.RepoPath = vbNullString
+    p.CondorInputPath = vbNullString
+    p.CondorOutputPath = vbNullString
+
+    p.CodigoTarifa = Trim$(txtCodigoTarifa.Text)
+    p.Poliza = Trim$(txtPoliza.Text)
+    p.Observacion = Trim$(txtObservacion.Text)
+    p.PlanAccion = Trim$(txtPlanAccion.Text)
+
+    'PlanSheetsRaw (X;Y;Z o vacío)
+    p.PlanSheetsRaw = Trim$(txtPlanSheetsRaw.Text)
+
+    'Poliza continuacion (libre)
+    p.PolizaEsContinuacion = Trim$(txtPolizaContinuacion.Text)
+
+    'Números (parse)
+    p.UF_CLP = ParseNumber(txtUF_CLP.Text)
+    RaiseIfBadNumber "UF (CLP)", p.UF_CLP
+
+    p.CuotasPromedio = ParseNumber(txtCuotasPromedio.Text)
+    RaiseIfBadNumber "CUOTAS_PROMEDIO", p.CuotasPromedio
+
+    p.ProfitSharing = ParseNumber(txtProfitSharing.Text)
+    RaiseIfBadNumber "PROFIT_SHARING", p.ProfitSharing
+
+    p.PrimaCedida = ParseNumber(txtPrimaCedida.Text)
+    RaiseIfBadNumber "PRIMA_CEDIDA", p.PrimaCedida
+
+    p.FormulaSiniestralidadAplica = ParseNumber(txtFormulaSiniestralidad.Text)
+    RaiseIfBadNumber "FORMULA_SINIESTRALIDAD_APLICA", p.FormulaSiniestralidadAplica
+
+    p.Brim = ParseNumber(txtBrim.Text)
+    RaiseIfBadNumber "BRIM", p.Brim
+
+    p.DescuentoAsistenciaPct = ParseNumber(txtDescuentoAsistenciaPct.Text)
+    RaiseIfBadNumber "% DESCUENTO ASISTENCIA", p.DescuentoAsistenciaPct
+
+    If tglROP.Value Then
+        p.BonificacionROPPct = ParseNumber(txtBonificacionROPPct.Text)
+        RaiseIfBadNumber "BONIFICACION ROP (%)", p.BonificacionROPPct
+    Else
+        p.BonificacionROPPct = vbNullString 'el macro lo setea a N/A
+    End If
+
+    'SI/NO
+    p.ProductoCuentaAsistencia = ToggleToSiNo(tglProductoCuentaAsistencia)
+    p.TieneEcosistema = ToggleToSiNo(tglTieneEcosistema)
+    p.CanalTMK = ToggleToSiNo(tglCanalTMK)
+    p.ROP = ToggleToSiNo(tglROP)
+    p.VentaPorPlanes = ToggleToSiNo(tglVentaPorPlanes)
+
+    'Si quieres permitir vacío, pon por defecto "NO"
+    If Len(p.PolizaEsContinuacion) = 0 Then p.PolizaEsContinuacion = "NO"
+
+    'Cerrar repo al final
+    Dim closeRepoAfter As Boolean
+    closeRepoAfter = (tglCerrarRepo.Value = True)
+
+    'Ejecutar
+    Me.Hide
+    ExportarRepositorio p, closeRepoAfter
+    Unload Me
+    Exit Sub
+
+EH:
+    MsgBox "Error en formulario: " & Err.Description, vbCritical
+    Me.Show
+End Sub

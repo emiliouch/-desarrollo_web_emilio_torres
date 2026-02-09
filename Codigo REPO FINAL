@@ -30,41 +30,70 @@ Option Explicit
 ' 5) Escribe Tasa_Caida por plan en Tasa_Caida (bloque, rápido).
 '===========================================================
 
+'Ejecutamos el forms con esta Sub
+Public Sub ExportarRepositorio_UI()
+    Dim p As tExportParams
+    Dim closeRepoAfter As Boolean
+
+    'Abrir form (modal)
+    frmExportRepo.Show vbModal
+
+    If frmExportRepo.Cancelled Then
+        Unload frmExportRepo
+        Exit Sub
+    End If
+
+    p = frmExportRepo.OutParams
+    closeRepoAfter = frmExportRepo.CloseRepoAfter  'por defecto False si no tienes el toggle
+
+    Unload frmExportRepo
+
+    ExportarRepositorio p, closeRepoAfter
+End Sub
 '-----------------------
 ' Parámetros de ejecución
 '-----------------------
 Public Type tExportParams
     RepoPath As String
-    CondorInputPath As String          'BPInputTemplate...
-    CondorOutputPath As String         'Results_[input]...
+    CondorInputPath As String
+    CondorOutputPath As String
 
-    'Manual / formulario (se repite para consolidado y planes)
+    'Manual / formulario
     CodigoTarifa As String
     Poliza As String
 
-    'UF (CLP) ahora es manual en formulario
     UF_CLP As Variant
-
     CuotasPromedio As Variant
-    ProfitSharing As Variant
     PrimaCedida As Variant
-    FormulaSiniestralidadAplica As Variant
-    Brim As Variant
+
+    'SI/NO + dependientes
+    ProfitSharing As String              'SI/NO
+    ProfitSharingPct As Variant          'solo si ProfitSharing=SI
+
+    FormulaSiniestralidadAplica As String 'SI/NO
+
+    Brim As String                       'SI/NO
+    KpiBrim As Variant                   'solo si Brim=SI
 
     Observacion As String
     PlanAccion As String
 
-    ProductoCuentaAsistencia As Variant
+    ProductoCuentaAsistencia As String   'SI/NO
     DescuentoAsistenciaPct As Variant
-    TieneEcosistema As Variant
-    CanalTMK As Variant
-    ROP As Variant
-    BonificacionROPPct As Variant
-    VentaPorPlanes As Variant
-    PolizaEsContinuacion As Variant
 
-    'Lista de hojas INPUT separadas por ";", por ejemplo: "X;Y;Z"
-    'Si viene vacío => la póliza NO tiene planes (solo consolidado con PLAN="N/A")
+    TieneEcosistema As String            'SI/NO
+    CanalTMK As String                   'SI/NO
+
+    ROP As String                        'SI/NO
+    BonificacionROPPct As Variant        'solo si ROP=SI
+
+    VentaPorPlanes As String             'SI/NO
+
+    'Guardamos exactamente lo que va al header:
+    ' "NO" o "SI: 12345"
+    PolizaEsContinuacion As String
+
+    'Lista de hojas INPUT separadas por ";"
     PlanSheetsRaw As String
 End Type
 
@@ -209,40 +238,92 @@ End Function
 '===========================================================
 ' Campos manuales obligatorios
 '===========================================================
-Private Sub ValidateManualFields(ByRef p As tExportParams)
+Public Sub ValidateManualFields(ByRef p As tExportParams)
 
+    'Identidad
     If Len(Trim$(p.CodigoTarifa)) = 0 Then Err.Raise vbObjectError + 8010, "ValidateManualFields", "CODIGO_TARIFA vacío."
     If Len(Trim$(p.Poliza)) = 0 Then Err.Raise vbObjectError + 8011, "ValidateManualFields", "POLIZA vacío."
 
-    'UF manual (CLP)
-    If IsEmptyOrBlank(p.UF_CLP) Then Err.Raise vbObjectError + 8011, "ValidateManualFields", "UF (CLP) vacío."
-    If Not IsNumeric(p.UF_CLP) Then Err.Raise vbObjectError + 8011, "ValidateManualFields", "UF (CLP) debe ser numérico."
+    'UF (CLP)
+    If IsEmptyOrBlank(p.UF_CLP) Then Err.Raise vbObjectError + 8012, "ValidateManualFields", "UF (CLP) vacío."
+    If Not IsNumeric(p.UF_CLP) Then Err.Raise vbObjectError + 8013, "ValidateManualFields", "UF (CLP) debe ser numérico."
 
-    If IsEmptyOrBlank(p.CuotasPromedio) Then Err.Raise vbObjectError + 8012, "ValidateManualFields", "CUOTAS_PROMEDIO vacío."
-    If IsEmptyOrBlank(p.ProfitSharing) Then Err.Raise vbObjectError + 8013, "ValidateManualFields", "PROFIT_SHARING vacío."
-    If IsEmptyOrBlank(p.PrimaCedida) Then Err.Raise vbObjectError + 8014, "ValidateManualFields", "PRIMA_CEDIDA vacío."
-    If IsEmptyOrBlank(p.FormulaSiniestralidadAplica) Then Err.Raise vbObjectError + 8015, "ValidateManualFields", "FORMULA_SINIESTRALIDAD_APLICA vacío."
-    If IsEmptyOrBlank(p.Brim) Then Err.Raise vbObjectError + 8016, "ValidateManualFields", "BRIM vacío."
+    'Numéricos obligatorios
+    If IsEmptyOrBlank(p.CuotasPromedio) Then Err.Raise vbObjectError + 8014, "ValidateManualFields", "CUOTAS_PROMEDIO vacío."
+    If Not IsNumeric(p.CuotasPromedio) Then Err.Raise vbObjectError + 8015, "ValidateManualFields", "CUOTAS_PROMEDIO debe ser numérico."
 
-    If Len(Trim$(p.Observacion)) = 0 Then Err.Raise vbObjectError + 8017, "ValidateManualFields", "OBSERVACIÓN vacía."
-    If Len(Trim$(p.PlanAccion)) = 0 Then Err.Raise vbObjectError + 8018, "ValidateManualFields", "PLAN_DE_ACCIÓN vacío."
+    If IsEmptyOrBlank(p.PrimaCedida) Then Err.Raise vbObjectError + 8016, "ValidateManualFields", "PRIMA_CEDIDA vacío."
+    If Not IsNumeric(p.PrimaCedida) Then Err.Raise vbObjectError + 8017, "ValidateManualFields", "PRIMA_CEDIDA debe ser numérico."
 
-    If IsEmptyOrBlank(p.ProductoCuentaAsistencia) Then Err.Raise vbObjectError + 8019, "ValidateManualFields", "PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO vacío."
-    If IsEmptyOrBlank(p.DescuentoAsistenciaPct) Then Err.Raise vbObjectError + 8020, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS) vacío."
-    If IsEmptyOrBlank(p.TieneEcosistema) Then Err.Raise vbObjectError + 8021, "ValidateManualFields", "TIENE_ECOSISTEMA_(SI/NO) vacío."
-    If IsEmptyOrBlank(p.CanalTMK) Then Err.Raise vbObjectError + 8022, "ValidateManualFields", "CANAL_TMK_(SI/NO) vacío."
-    If IsEmptyOrBlank(p.ROP) Then Err.Raise vbObjectError + 8023, "ValidateManualFields", "ROP_(SI/NO) vacío."
+    If IsEmptyOrBlank(p.DescuentoAsistenciaPct) Then Err.Raise vbObjectError + 8018, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA vacío."
+    If Not IsNumeric(p.DescuentoAsistenciaPct) Then Err.Raise vbObjectError + 8019, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA debe ser numérico."
 
-    'Si ROP = SI, ahí sí exigimos bonificación. Si es NO, la dejamos en "N/A".
-    If UCase$(Trim$(CStr(p.ROP))) = "SI" Then
-        If IsEmptyOrBlank(p.BonificacionROPPct) Then Err.Raise vbObjectError + 8024, "ValidateManualFields", "BONIFICACION_ROP_(%) vacío (ROP=SI)."
+    'Textos obligatorios
+    If Len(Trim$(p.Observacion)) = 0 Then Err.Raise vbObjectError + 8020, "ValidateManualFields", "OBSERVACIÓN vacía."
+    If Len(Trim$(p.PlanAccion)) = 0 Then Err.Raise vbObjectError + 8021, "ValidateManualFields", "PLAN_DE_ACCIÓN vacío."
+
+    'Normalizar SI/NO (blanco => NO)
+    p.ProfitSharing = NormalizeSiNo(p.ProfitSharing)
+    p.FormulaSiniestralidadAplica = NormalizeSiNo(p.FormulaSiniestralidadAplica)
+    p.Brim = NormalizeSiNo(p.Brim)
+
+    p.ProductoCuentaAsistencia = NormalizeSiNo(p.ProductoCuentaAsistencia)
+    p.TieneEcosistema = NormalizeSiNo(p.TieneEcosistema)
+    p.CanalTMK = NormalizeSiNo(p.CanalTMK)
+    p.ROP = NormalizeSiNo(p.ROP)
+    p.VentaPorPlanes = NormalizeSiNo(p.VentaPorPlanes)
+
+    'Dependientes
+    If p.ProfitSharing = "SI" Then
+        If IsEmptyOrBlank(p.ProfitSharingPct) Then Err.Raise vbObjectError + 8022, "ValidateManualFields", "PORCENTAJE_PROFIT_SHARING vacío (Profit Sharing=SI)."
+        If Not IsNumeric(p.ProfitSharingPct) Then Err.Raise vbObjectError + 8023, "ValidateManualFields", "PORCENTAJE_PROFIT_SHARING debe ser numérico."
+    Else
+        p.ProfitSharingPct = "N/A"
+    End If
+
+    If p.Brim = "SI" Then
+        If IsEmptyOrBlank(p.KpiBrim) Then Err.Raise vbObjectError + 8024, "ValidateManualFields", "KPI_BRIM vacío (BRIM=SI)."
+        If Not IsNumeric(p.KpiBrim) Then Err.Raise vbObjectError + 8025, "ValidateManualFields", "KPI_BRIM debe ser numérico."
+    Else
+        p.KpiBrim = "N/A"
+    End If
+
+    If p.ROP = "SI" Then
+        If IsEmptyOrBlank(p.BonificacionROPPct) Then Err.Raise vbObjectError + 8026, "ValidateManualFields", "BONIFICACION_ROP_(%) vacío (ROP=SI)."
+        If Not IsNumeric(p.BonificacionROPPct) Then Err.Raise vbObjectError + 8027, "ValidateManualFields", "BONIFICACION_ROP_(%) debe ser numérico."
     Else
         p.BonificacionROPPct = "N/A"
     End If
 
-    If IsEmptyOrBlank(p.VentaPorPlanes) Then Err.Raise vbObjectError + 8025, "ValidateManualFields", "VENTA_POR_PLANES_(SI/NO) vacío."
-    If IsEmptyOrBlank(p.PolizaEsContinuacion) Then Err.Raise vbObjectError + 8026, "ValidateManualFields", "POLIZA_ES_CONTINUACION_(...) vacío."
+    'Venta por planes coherente con lista
+    If p.VentaPorPlanes = "SI" Then
+        If Len(Trim$(p.PlanSheetsRaw)) = 0 Then
+            Err.Raise vbObjectError + 8028, "ValidateManualFields", "VENTA_POR_PLANES=SI pero PlanSheetsRaw está vacío."
+        End If
+    Else
+        'si no vende por planes, forzamos vacío para que el macro no intente leer planes
+        p.PlanSheetsRaw = vbNullString
+    End If
+
+    'Póliza continuación: debe venir "NO" o "SI: 12345"
+    If Len(Trim$(p.PolizaEsContinuacion)) = 0 Then p.PolizaEsContinuacion = "NO"
+    If UCase$(Left$(Trim$(p.PolizaEsContinuacion), 2)) = "SI" Then
+        'mínima higiene: "SI:" + número
+        If InStr(1, p.PolizaEsContinuacion, ":", vbTextCompare) = 0 Then
+            Err.Raise vbObjectError + 8029, "ValidateManualFields", "POLIZA_ES_CONTINUACION debe ser 'NO' o 'SI: <número>'."
+        End If
+    End If
 End Sub
+
+Private Function NormalizeSiNo(ByVal v As Variant) As String
+    Dim s As String
+    s = UCase$(Trim$(CStr(v)))
+    If s = "SI" Then
+        NormalizeSiNo = "SI"
+    Else
+        NormalizeSiNo = "NO" 'incluye vacío
+    End If
+End Function
 
 Private Function IsEmptyOrBlank(ByVal v As Variant) As Boolean
     If IsEmpty(v) Or IsNull(v) Then
@@ -820,8 +901,8 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "RATIO_DE_ASISTENCIA_SOBRE_LA_NEP", ratioAsistSobreNEP
 
     'Extras
-    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.ProfitSharingPct
+    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", p.KpiBrim
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
     WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 
@@ -1064,8 +1145,8 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)", p.PolizaEsContinuacion
 
     'Auxiliares del listado
-    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.ProfitSharingPct
+    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", p.KpiBrim
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
     WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 

@@ -89,6 +89,7 @@ Private Const ROW_NEP As Long = 139
 Private Const ROW_COMISIONES_MONTO As Long = 163  'se sigue leyendo, aunque comisiones finales salen del BP
 Private Const ROW_CLAIMS As Long = 174
 Private Const ROW_EXPUESTOS As Long = 288
+Private Const ROW_COMISIONES_AUX As Long = 55
 
 'Input Condor (por hoja X/Y/Z)
 Private Const IN_ADDR_PLANNAME As String = "C4"
@@ -657,8 +658,16 @@ Private Sub AppendConsolidado(ByVal baseWS As Worksheet, ByVal headers As Object
     m = ReadCondorMetrics(ws, totalCol)
 
     'Derivados Condor
+    Dim valorCliente As Variant
+    If m.NEP <> 0# Then valorCliente = m.Claims / m.NEP Else valorCliente = Empty
+
     Dim siniestralidad As Variant
-    If m.NEP <> 0# Then siniestralidad = m.Claims / m.NEP Else siniestralidad = Empty
+    If (m.NEP - m.ComisionesAuxMonto) <> 0# Then
+        siniestralidad = m.Claims / (m.NEP - m.ComisionesAuxMonto)
+    Else
+        siniestralidad = Empty
+    End If
+
 
     Dim devolPct As Variant
     If m.WrittenNetTax <> 0# Then devolPct = m.Devoluciones / m.WrittenNetTax Else devolPct = Empty
@@ -740,8 +749,8 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     'COMISIONES (BP Mensual)
     WriteByHeader baseWS, headers, rowIndex, "COMISIONES", comPct
 
-    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirPct
-    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndPct
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", m.GastosDirectosMonto
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", m.GastosIndirectosMonto
     WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", Empty
 
     'Consolidado: LOAN_DURATION no aplica
@@ -755,9 +764,9 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_SINIESTRO_MEDIO", "CLP"
 
     WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", siniestralidad
-    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD_SOBRE_LA_NEP", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD_SOBRE_LA_NEP", valorCliente
     WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
-    WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
 
     'UF manual (formulario)
     WriteByHeader baseWS, headers, rowIndex, "UF", p.UF_CLP
@@ -872,8 +881,16 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
         Dim loanDuration As Variant: loanDuration = d("loan_duration")
 
         'Derivados Condor
+        Dim valorCliente As Variant
+        If m.NEP <> 0# Then valorCliente = m.Claims / m.NEP Else valorCliente = Empty
+
         Dim siniestralidad As Variant
-        If m.NEP <> 0# Then siniestralidad = m.Claims / m.NEP Else siniestralidad = Empty
+        If (m.NEP - m.ComisionesAuxMonto) <> 0# Then
+            siniestralidad = m.Claims / (m.NEP - m.ComisionesAuxMonto)
+        Else
+            siniestralidad = Empty
+        End If
+
 
         Dim devolPct As Variant
         If m.WrittenNetTax <> 0# Then devolPct = m.Devoluciones / m.WrittenNetTax Else devolPct = Empty
@@ -972,8 +989,8 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     'COMISIONES desde BP Mensual
     WriteByHeader baseWS, headers, rowIndex, "COMISIONES", comPct
 
-    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", gastosDirPct
-    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", gastosIndPct
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", m.GastosDirectosMonto
+    WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", m.GastosIndirectosMonto
 
     'Condor Input
     WriteByHeader baseWS, headers, rowIndex, "MESES_DE_VENTA", mesesVenta
@@ -998,9 +1015,9 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_SINIESTRO_MEDIO", "CLP"
 
     WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", siniestralidad
-    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD_SOBRE_LA_NEP", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD_SOBRE_LA_NEP", valorCliente
     WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
-    WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", siniestralidad
+    WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
 
     'UF manual (formulario)
     WriteByHeader baseWS, headers, rowIndex, "UF", p.UF_CLP
@@ -1200,6 +1217,7 @@ Private Type tMetrics
     Expuestos As Double
     GastosDirectosMonto As Double
     GastosIndirectosMonto As Double
+    ComisionesAuxMonto As Double
 End Type
 
 Private Function ReadCondorMetrics(ByVal ws As Worksheet, ByVal totalCol As Long) As tMetrics
@@ -1212,6 +1230,7 @@ Private Function ReadCondorMetrics(ByVal ws As Worksheet, ByVal totalCol As Long
     m.NEP = CDbl(ValSafe(ws.Cells(ROW_NEP, totalCol).Value2))
     m.ComisionesMonto = CDbl(ValSafe(ws.Cells(ROW_COMISIONES_MONTO, totalCol).Value2))
     m.Claims = CDbl(ValSafe(ws.Cells(ROW_CLAIMS, totalCol).Value2))
+    m.ComisionesAuxMonto = CDbl(ValSafe(ws.Cells(ROW_COMISIONES_AUX, totalCol).Value2))
 
     m.Expuestos = SumRowFromCToLastNonEmpty(ws, ROW_EXPUESTOS)
 

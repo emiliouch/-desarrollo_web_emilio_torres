@@ -1,166 +1,406 @@
 Option Explicit
 
-Private Sub SyncSiNo(ByVal t As MSForms.ToggleButton)
-    'Regla visual:
-    ' - apretado => muestra "SI"
-    ' - suelto   => queda en blanco (pero internamente lo convertimos a "NO")
-    If t.Value Then
-        t.Caption = "SI"
+Public WasExported As Boolean
+Public Params As Object  ' Scripting.Dictionary (late-binding)
+
+Private Const TOGGLE_ON_CAPTION As String = "X"
+
+Private Sub UserForm_Initialize()
+    WasExported = False
+    Set Params = Nothing
+
+    ' Defaults visuales / lógicos (por si quedara algo guardado)
+    InitToggleLook tglProductoCuentaAsistencia
+    InitToggleLook tglTieneEcosistema
+    InitToggleLook tglCanalTMK
+    InitToggleLook tglROP
+    InitToggleLook tglVentaPorPlanes
+    InitToggleLook tglProfitSharing
+    InitToggleLook tglFormulaSiniestralidad
+    InitToggleLook tglBrim
+
+    If ControlExists("tglCerrarRepo") Then
+        InitToggleLook Me.Controls("tglCerrarRepo")
+    End If
+
+    ' Oculta campos dependientes al inicio (por Properties igual, pero aquí lo aseguramos)
+    ApplyConditionalVisibility
+End Sub
+
+' BOTONES
+Private Sub cmdCancelar_Click()
+    WasExported = False
+    Set Params = Nothing
+    Me.Hide
+End Sub
+
+Private Sub cmdExportar_Click()
+    Dim p As Object
+    Set p = BuildParamsValidated()
+
+    If p Is Nothing Then Exit Sub ' hubo error/validación
+
+    WasExported = True
+    Set Params = p
+    Me.Hide
+End Sub
+
+' TOGGLES
+Private Sub tglProductoCuentaAsistencia_Click()
+    RefreshToggle tglProductoCuentaAsistencia
+End Sub
+
+Private Sub tglTieneEcosistema_Click()
+    RefreshToggle tglTieneEcosistema
+End Sub
+
+Private Sub tglCanalTMK_Click()
+    RefreshToggle tglCanalTMK
+End Sub
+
+Private Sub tglROP_Click()
+    RefreshToggle tglROP
+    ApplyConditionalVisibility
+End Sub
+
+Private Sub tglVentaPorPlanes_Click()
+    RefreshToggle tglVentaPorPlanes
+End Sub
+
+Private Sub tglProfitSharing_Click()
+    RefreshToggle tglProfitSharing
+End Sub
+
+Private Sub tglFormulaSiniestralidad_Click()
+    RefreshToggle tglFormulaSiniestralidad
+End Sub
+
+Private Sub tglBrim_Click()
+    RefreshToggle tglBrim
+End Sub
+
+
+' CHECKBOX Continuación
+Private Sub chkPolizaContinuacion_Click()
+    ApplyConditionalVisibility
+End Sub
+
+' VALIDACIONES de formato
+Private Sub txtPlanSheetsRaw_AfterUpdate()
+    txtPlanSheetsRaw.Value = Replace(Trim$(txtPlanSheetsRaw.Value), " ", "")
+End Sub
+
+Private Sub txtBonificacionROPPct_AfterUpdate()
+    txtBonificacionROPPct.Value = NormalizeNumberText(txtBonificacionROPPct.Value)
+End Sub
+
+Private Sub txtUF_CLP_AfterUpdate()
+    txtUF_CLP.Value = NormalizeNumberText(txtUF_CLP.Value)
+End Sub
+
+Private Sub txtCuotasPromedio_AfterUpdate()
+    txtCuotasPromedio.Value = NormalizeNumberText(txtCuotasPromedio.Value)
+End Sub
+
+Private Sub txtPrimaCedida_AfterUpdate()
+    txtPrimaCedida.Value = NormalizeNumberText(txtPrimaCedida.Value)
+End Sub
+
+Private Sub txtDescuentoAsistenciaPct_AfterUpdate()
+    txtDescuentoAsistenciaPct.Value = NormalizeNumberText(txtDescuentoAsistenciaPct.Value)
+End Sub
+
+Private Sub txtPolizaContinuacionNro_AfterUpdate()
+    txtPolizaContinuacionNro.Value = OnlyDigits(txtPolizaContinuacionNro.Value)
+End Sub
+
+'===========================================================
+' CORE
+'===========================================================
+
+Private Sub ApplyConditionalVisibility()
+    Dim ropOn As Boolean
+    ropOn = (tglROP.Value = True)
+
+    txtBonificacionROPPct.Visible = ropOn
+    ' Intentamos ocultar labels típicos si existen (ajusta nombres si los tuyos son distintos)
+    SafeSetVisibleArray Array("lblBonificacionROPPct", "lblBonificacionROP", "lblBoniROP"), ropOn
+
+    Dim contOn As Boolean
+    contOn = (chkPolizaContinuacion.Value = True)
+
+    txtPolizaContinuacionNro.Visible = contOn
+    SafeSetVisibleArray Array("lblPolizaContinuacionNro", "lblPolizaContinuacion", "lblNroContinuacion"), contOn
+End Sub
+
+Private Function BuildParamsValidated() As Object
+    Dim errs As Collection
+    Set errs = New Collection
+
+    ' 1) Reglas básicas texto
+    If Len(Trim$(txtCodigoTarifa.Value)) = 0 Then errs.Add "Falta Código Tarifa (txtCodigoTarifa)."
+    If Len(Trim$(txtPoliza.Value)) = 0 Then errs.Add "Falta Póliza (txtPoliza)."
+
+    ' 2) Números requeridos
+    If Not IsValidNumberRequired(txtUF_CLP.Value) Then errs.Add "UF_CLP inválido o vacío (txtUF_CLP)."
+    If Not IsValidNumberRequired(txtCuotasPromedio.Value) Then errs.Add "Cuotas Promedio inválido o vacío (txtCuotasPromedio)."
+    If Not IsValidNumberRequired(txtPrimaCedida.Value) Then errs.Add "Prima Cedida inválido o vacío (txtPrimaCedida)."
+    If Not IsValidPercentRequired(txtDescuentoAsistenciaPct.Value) Then errs.Add "% Descuento Asistencia inválido o vacío (txtDescuentoAsistenciaPct)."
+
+    ' 3) ROP dependiente
+    If tglROP.Value = True Then
+        If Not IsValidPercentRequired(txtBonificacionROPPct.Value) Then
+            errs.Add "ROP = SI, pero falta/está mal Bonificación ROP % (txtBonificacionROPPct)."
+        End If
+    End If
+
+    ' 4) Continuación dependiente
+    If chkPolizaContinuacion.Value = True Then
+        If Len(Trim$(txtPolizaContinuacionNro.Value)) = 0 Then
+            errs.Add "Continuación = SI, pero falta N° póliza (txtPolizaContinuacionNro)."
+        ElseIf Not IsNumeric(txtPolizaContinuacionNro.Value) Then
+            errs.Add "N° póliza continuación debe ser numérico (txtPolizaContinuacionNro)."
+        End If
+    End If
+
+    ' 5) PlanSheetsRaw formato "X;Y;Z" o vacío
+    If Len(Trim$(txtPlanSheetsRaw.Value)) > 0 Then
+        If Not IsValidPlanSheetsRaw(txtPlanSheetsRaw.Value) Then
+            errs.Add "PlanSheetsRaw inválido (usa formato X;Y;Z sin espacios) (txtPlanSheetsRaw)."
+        End If
+    End If
+
+    ' Si hay errores, mostramos todo junto
+    If errs.Count > 0 Then
+        MsgBox JoinCollection(errs, vbCrLf), vbExclamation, "Revisa el formulario"
+        Set BuildParamsValidated = Nothing
+        Exit Function
+    End If
+
+    ' Construir Dictionary con keys = nombres de controles (más fácil de mapear en tu macro)
+    Dim p As Object
+    Set p = CreateObject("Scripting.Dictionary")
+
+    ' Textos
+    p("txtCodigoTarifa") = Trim$(txtCodigoTarifa.Value)
+    p("txtPoliza") = Trim$(txtPoliza.Value)
+    p("txtObservacion") = Trim$(txtObservacion.Value)
+    p("txtPlanAccion") = Trim$(txtPlanAccion.Value)
+    p("txtPlanSheetsRaw") = Trim$(txtPlanSheetsRaw.Value)
+
+    ' Números (guardamos como Double)
+    p("txtUF_CLP") = CDbl(NormalizeNumberText(txtUF_CLP.Value))
+    p("txtCuotasPromedio") = CDbl(NormalizeNumberText(txtCuotasPromedio.Value))
+    p("txtPrimaCedida") = CDbl(NormalizeNumberText(txtPrimaCedida.Value))
+    p("txtDescuentoAsistenciaPct") = CDbl(NormalizeNumberText(txtDescuentoAsistenciaPct.Value))
+
+    ' Continuación (checkbox + nro)
+    p("chkPolizaContinuacion") = YesNoFromCheck(chkPolizaContinuacion.Value)
+    If chkPolizaContinuacion.Value = True Then
+        p("txtPolizaContinuacionNro") = CLng(Val(txtPolizaContinuacionNro.Value))
+        p("PolizaContinuacion") = "SI: " & CStr(CLng(Val(txtPolizaContinuacionNro.Value)))
+    Else
+        p("txtPolizaContinuacionNro") = vbNullString
+        p("PolizaContinuacion") = "NO"
+    End If
+
+    ' Toggles SI/NO (si está en blanco = NO, aquí ya queda resuelto)
+    p("tglProductoCuentaAsistencia") = YesNoFromToggle(tglProductoCuentaAsistencia)
+    p("tglTieneEcosistema") = YesNoFromToggle(tglTieneEcosistema)
+    p("tglCanalTMK") = YesNoFromToggle(tglCanalTMK)
+    p("tglROP") = YesNoFromToggle(tglROP)
+    p("tglVentaPorPlanes") = YesNoFromToggle(tglVentaPorPlanes)
+
+    p("tglProfitSharing") = YesNoFromToggle(tglProfitSharing)
+    p("tglFormulaSiniestralidad") = YesNoFromToggle(tglFormulaSiniestralidad)
+    p("tglBrim") = YesNoFromToggle(tglBrim)
+
+    If ControlExists("tglCerrarRepo") Then
+        p("tglCerrarRepo") = YesNoFromToggle(Me.Controls("tglCerrarRepo"))
+    Else
+        p("tglCerrarRepo") = "NO"
+    End If
+
+    ' ROP Bonificación
+    If tglROP.Value = True Then
+        p("txtBonificacionROPPct") = CDbl(NormalizeNumberText(txtBonificacionROPPct.Value))
+    Else
+        p("txtBonificacionROPPct") = vbNullString
+    End If
+
+    Set BuildParamsValidated = p
+End Function
+
+'===========================================================
+' HELPERS - toggles / visibilidad
+'===========================================================
+
+Private Sub InitToggleLook(ByVal t As MSForms.ToggleButton)
+    ' Si el toggle ya trae valor, respetamos pero normalizamos el caption
+    RefreshToggle t
+End Sub
+
+Private Sub RefreshToggle(ByVal t As MSForms.ToggleButton)
+    If t.Value = True Then
+        t.Caption = TOGGLE_ON_CAPTION
     Else
         t.Caption = vbNullString
     End If
 End Sub
 
-Private Function ToggleToSiNo(ByVal t As MSForms.ToggleButton) As String
-    If t.Value Then ToggleToSiNo = "SI" Else ToggleToSiNo = "NO"
+Private Function YesNoFromToggle(ByVal t As MSForms.ToggleButton) As String
+    If t.Value = True Then
+        YesNoFromToggle = "SI"
+    Else
+        YesNoFromToggle = "NO"
+    End If
 End Function
 
-Private Sub UpdateROPState()
-    'Si ROP = NO, deshabilitamos bonificación (igual el macro lo deja en N/A)
-    txtBonificacionROPPct.Enabled = (tglROP.Value = True)
-    If Not tglROP.Value Then
-        txtBonificacionROPPct.Text = vbNullString
+Private Function YesNoFromCheck(ByVal v As Boolean) As String
+    If v Then
+        YesNoFromCheck = "SI"
+    Else
+        YesNoFromCheck = "NO"
     End If
+End Function
+
+Private Sub SafeSetVisibleArray(ByVal names As Variant, ByVal visibleState As Boolean)
+    Dim i As Long, nm As String
+    For i = LBound(names) To UBound(names)
+        nm = CStr(names(i))
+        If ControlExists(nm) Then
+            Me.Controls(nm).Visible = visibleState
+        End If
+    Next i
 End Sub
 
-Private Function ParseNumber(ByVal raw As String) As Variant
-    Dim s As String
-    s = Trim$(raw)
+Private Function ControlExists(ByVal controlName As String) As Boolean
+    On Error GoTo EH
+    Dim tmp As Object
+    Set tmp = Me.Controls(controlName)
+    ControlExists = True
+    Exit Function
+EH:
+    ControlExists = False
+End Function
 
-    If Len(s) = 0 Then
-        ParseNumber = Empty
+'===========================================================
+' HELPERS - validación
+'===========================================================
+
+Private Function NormalizeNumberText(ByVal s As String) As String
+    ' Normaliza números: quita espacios, cambia coma/punto al separador local.
+    Dim t As String
+    t = Trim$(s)
+
+    If Len(t) = 0 Then
+        NormalizeNumberText = vbNullString
         Exit Function
     End If
 
-    Dim decSep As String, thouSep As String
-    decSep = Application.International(xlDecimalSeparator)
-    thouSep = Application.International(xlThousandsSeparator)
+    t = Replace(t, " ", "")
 
-    'Quitar separador de miles
-    If Len(thouSep) > 0 Then s = Replace(s, thouSep, vbNullString)
+    ' Permite que el usuario escriba "." o "," sin pelearse con el separador local
+    Dim decSep As String
+    decSep = Application.DecimalSeparator
 
-    'Alinear decimal a la config local
     If decSep = "," Then
-        s = Replace(s, ".", ",")
+        t = Replace(t, ".", ",")
     Else
-        s = Replace(s, ",", ".")
+        t = Replace(t, ",", ".")
     End If
 
-    If IsNumeric(s) Then
-        ParseNumber = CDbl(s)
+    NormalizeNumberText = t
+End Function
+
+Private Function OnlyDigits(ByVal s As String) As String
+    Dim i As Long, ch As String, out As String
+    out = vbNullString
+    s = Trim$(s)
+
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If ch Like "#" Then out = out & ch
+    Next i
+
+    OnlyDigits = out
+End Function
+
+Private Function IsValidNumberRequired(ByVal s As String) As Boolean
+    Dim t As String
+    t = NormalizeNumberText(s)
+    If Len(t) = 0 Then
+        IsValidNumberRequired = False
     Else
-        ParseNumber = CVErr(xlErrValue)
+        IsValidNumberRequired = IsNumeric(t)
     End If
 End Function
 
-Private Sub RaiseIfBadNumber(ByVal fieldLabel As String, ByVal v As Variant)
-    If IsError(v) Then Err.Raise vbObjectError + 6001, "UserForm1", fieldLabel & " debe ser numérico."
-End Sub
-
-Private Sub UserForm_Initialize()
-    'Dejar todo en NO visualmente (blanco)
-    SyncSiNo tglProductoCuentaAsistencia
-    SyncSiNo tglTieneEcosistema
-    SyncSiNo tglCanalTMK
-    SyncSiNo tglROP
-    SyncSiNo tglVentaPorPlanes
-
-    'Opcional: por defecto cerrar repo al terminar
-    tglCerrarRepo.Value = True
-    SyncSiNo tglCerrarRepo
-
-    UpdateROPState
-End Sub
-
-
-Private Sub tglProductoCuentaAsistencia_Click(): SyncSiNo tglProductoCuentaAsistencia: End Sub
-Private Sub tglTieneEcosistema_Click():         SyncSiNo tglTieneEcosistema:         End Sub
-Private Sub tglCanalTMK_Click():                SyncSiNo tglCanalTMK:                End Sub
-Private Sub tglVentaPorPlanes_Click():          SyncSiNo tglVentaPorPlanes:          End Sub
-Private Sub tglCerrarRepo_Click():              SyncSiNo tglCerrarRepo:              End Sub
-
-Private Sub tglROP_Click()
-    SyncSiNo tglROP
-    UpdateROPState
-End Sub
-
-'========================
-' Botones
-'========================
-Private Sub cmdCancelar_Click()
-    Unload Me
-End Sub
-
-Private Sub cmdExportar_Click()
-    On Error GoTo EH
-
-    Dim p As tExportParams
-
-    p.RepoPath = vbNullString
-    p.CondorInputPath = vbNullString
-    p.CondorOutputPath = vbNullString
-
-    p.CodigoTarifa = Trim$(txtCodigoTarifa.Text)
-    p.Poliza = Trim$(txtPoliza.Text)
-    p.Observacion = Trim$(txtObservacion.Text)
-    p.PlanAccion = Trim$(txtPlanAccion.Text)
-
-    'PlanSheetsRaw (X;Y;Z o vacío)
-    p.PlanSheetsRaw = Trim$(txtPlanSheetsRaw.Text)
-
-    'Poliza continuacion (libre)
-    p.PolizaEsContinuacion = Trim$(txtPolizaContinuacion.Text)
-
-    'Números (parse)
-    p.UF_CLP = ParseNumber(txtUF_CLP.Text)
-    RaiseIfBadNumber "UF (CLP)", p.UF_CLP
-
-    p.CuotasPromedio = ParseNumber(txtCuotasPromedio.Text)
-    RaiseIfBadNumber "CUOTAS_PROMEDIO", p.CuotasPromedio
-
-    p.ProfitSharing = ParseNumber(txtProfitSharing.Text)
-    RaiseIfBadNumber "PROFIT_SHARING", p.ProfitSharing
-
-    p.PrimaCedida = ParseNumber(txtPrimaCedida.Text)
-    RaiseIfBadNumber "PRIMA_CEDIDA", p.PrimaCedida
-
-    p.FormulaSiniestralidadAplica = ParseNumber(txtFormulaSiniestralidad.Text)
-    RaiseIfBadNumber "FORMULA_SINIESTRALIDAD_APLICA", p.FormulaSiniestralidadAplica
-
-    p.Brim = ParseNumber(txtBrim.Text)
-    RaiseIfBadNumber "BRIM", p.Brim
-
-    p.DescuentoAsistenciaPct = ParseNumber(txtDescuentoAsistenciaPct.Text)
-    RaiseIfBadNumber "% DESCUENTO ASISTENCIA", p.DescuentoAsistenciaPct
-
-    If tglROP.Value Then
-        p.BonificacionROPPct = ParseNumber(txtBonificacionROPPct.Text)
-        RaiseIfBadNumber "BONIFICACION ROP (%)", p.BonificacionROPPct
-    Else
-        p.BonificacionROPPct = vbNullString 'el macro lo setea a N/A
+Private Function IsValidPercentRequired(ByVal s As String) As Boolean
+    Dim t As String
+    t = NormalizeNumberText(s)
+    If Len(t) = 0 Then
+        IsValidPercentRequired = False
+        Exit Function
+    End If
+    If Not IsNumeric(t) Then
+        IsValidPercentRequired = False
+        Exit Function
     End If
 
-    'SI/NO
-    p.ProductoCuentaAsistencia = ToggleToSiNo(tglProductoCuentaAsistencia)
-    p.TieneEcosistema = ToggleToSiNo(tglTieneEcosistema)
-    p.CanalTMK = ToggleToSiNo(tglCanalTMK)
-    p.ROP = ToggleToSiNo(tglROP)
-    p.VentaPorPlanes = ToggleToSiNo(tglVentaPorPlanes)
+    Dim v As Double
+    v = CDbl(t)
+    IsValidPercentRequired = (v >= 0 And v <= 100)
+End Function
 
-    'Si quieres permitir vacío, pon por defecto "NO"
-    If Len(p.PolizaEsContinuacion) = 0 Then p.PolizaEsContinuacion = "NO"
+Private Function IsValidPlanSheetsRaw(ByVal s As String) As Boolean
+    ' Formato: X;Y;Z o vacío, sin tokens vacíos.
+    ' Acepta letras, números, guión, underscore.
+    Dim t As String
+    t = Replace(Trim$(s), " ", "")
+    If Len(t) = 0 Then
+        IsValidPlanSheetsRaw = True
+        Exit Function
+    End If
 
-    'Cerrar repo al final
-    Dim closeRepoAfter As Boolean
-    closeRepoAfter = (tglCerrarRepo.Value = True)
+    Dim parts() As String
+    parts = Split(t, ";")
 
-    'Ejecutar
-    Me.Hide
-    ExportarRepositorio p, closeRepoAfter
-    Unload Me
-    Exit Sub
+    Dim i As Long, token As String
+    For i = LBound(parts) To UBound(parts)
+        token = parts(i)
+        If Len(token) = 0 Then
+            IsValidPlanSheetsRaw = False
+            Exit Function
+        End If
+        If Not IsTokenSafe(token) Then
+            IsValidPlanSheetsRaw = False
+            Exit Function
+        End If
+    Next i
 
-EH:
-    MsgBox "Error en formulario: " & Err.Description, vbCritical
-    Me.Show
-End Sub
+    IsValidPlanSheetsRaw = True
+End Function
+
+Private Function IsTokenSafe(ByVal token As String) As Boolean
+    ' Solo A-Z a-z 0-9 _ -
+    Dim i As Long, ch As String
+    For i = 1 To Len(token)
+        ch = Mid$(token, i, 1)
+        If Not (ch Like "[A-Za-z0-9_-]") Then
+            IsTokenSafe = False
+            Exit Function
+        End If
+    Next i
+    IsTokenSafe = True
+End Function
+
+Private Function JoinCollection(ByVal c As Collection, ByVal sep As String) As String
+    Dim i As Long, out As String
+    out = vbNullString
+    For i = 1 To c.Count
+        If i > 1 Then out = out & sep
+        out = out & CStr(c(i))
+    Next i
+    JoinCollection = out
+End Function

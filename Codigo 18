@@ -710,7 +710,7 @@ Private Sub AppendConsolidado(ByVal baseWS As Worksheet, ByVal headers As Object
 
     FillBaseRow_Consolidado baseWS, headers, rowIndex, idValue, p, socioAuto, planLabel, m, _
                             primaClienteNeta, bpComPct, gastosDirectosPct, gastosIndirectosPct, _
-                            siniestralidad, devolPct, ivaEfectivo, ivaRec, _
+                            siniestralidad, valorCliente, devolPct, ivaEfectivo, ivaRec, _
                             costosMensualesCLP, mesesCarencia, _
                             bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
                             bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
@@ -724,7 +724,7 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
                                    ByRef m As tMetrics, _
                                    ByVal primaClienteNeta As Variant, ByVal comPct As Variant, _
                                    ByVal gastosDirPct As Variant, ByVal gastosIndPct As Variant, _
-                                   ByVal siniestralidad As Variant, ByVal devolPct As Variant, _
+                                   ByVal siniestralidad As Variant, ByVal valorCliente As Variant, ByVal devolPct As Variant, _
                                    ByVal ivaEfectivo As Variant, ByVal ivaRec As Variant, _
                                    ByVal costosMensualesCLP As Variant, ByVal mesesCarencia As Variant, _
                                    ByVal tasaEntrada As Variant, ByVal sinMedio As Variant, ByVal otrosCostosFijos As Variant, _
@@ -940,7 +940,7 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
         'Escritura fila Base
         FillBaseRow_Plan baseWS, headers, rowIndex, idValue, p, socioAuto, planName, _
                          m, mesesVenta, inflacionTxt, cutOffRunOffTxt, fechaCutOff, periodicidadTxt, productTypeTxt, loanDuration, _
-                         primaClienteNeta, bpComPct, gastosDirPct, gastosIndPct, siniestralidad, devolPct, ivaEfectivo, ivaRec, _
+                         primaClienteNeta, bpComPct, gastosDirPct, gastosIndPct, siniestralidad, valorCliente, devolPct, ivaEfectivo, ivaRec, _
                          costosMensualesCLP, mesesCarencia, _
                          bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
                          bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
@@ -964,7 +964,7 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
                             ByVal periodicidadTxt As String, ByVal productTypeTxt As String, ByVal loanDuration As Variant, _
                             ByVal primaClienteNeta As Variant, ByVal comPct As Variant, _
                             ByVal gastosDirPct As Variant, ByVal gastosIndPct As Variant, _
-                            ByVal siniestralidad As Variant, ByVal devolPct As Variant, _
+                            ByVal siniestralidad As Variant, ByVal valorCliente As Variant, ByVal devolPct As Variant, _
                             ByVal ivaEfectivo As Variant, ByVal ivaRec As Variant, _
                             ByVal costosMensualesCLP As Variant, ByVal mesesCarencia As Variant, _
                             ByVal tasaEntrada As Variant, ByVal sinMedio As Variant, ByVal otrosCostosFijos As Variant, _

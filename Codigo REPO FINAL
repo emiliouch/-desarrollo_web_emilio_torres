@@ -27,7 +27,7 @@ Option Explicit
 '    - Parametros (meses carencia + tabla Por_Riesgo)
 '    - BP Mensual (comisiones, tasa entrada, siniestro medio, reaseguro, siniestro cedido,
 '      ratio asistencia, otros costos directos fijos)
-' 5) Escribe Tasa_Caida por plan en Tasa_Caida (bloque, rápido).
+' 5) Escribe Tasa_Caida por plan en Tasa_Caida.
 '===========================================================
 
 'Ejecutamos el forms con esta Sub

@@ -62,7 +62,6 @@ Public Type tExportParams
     CodigoTarifa As String
     Poliza As String
 
-    UF_CLP As Variant
     CuotasPromedio As Variant
     PrimaCedida As Variant
 
@@ -72,7 +71,6 @@ Public Type tExportParams
     FormulaSiniestralidadAplica As String 'SI/NO
 
     Brim As String                       'SI/NO
-    KpiBrim As Variant                   'solo si Brim=SI
 
     Observacion As String
     PlanAccion As String
@@ -185,7 +183,7 @@ Private Function RequiredHeaders_Base() As Variant
 
     chunks = Array( _
         "ID_INTERNO|CODIGO_TARIFA|POLIZA|SOCIO|PLAN|PRIMA_CLIENTE_NETA|UNIDAD_PRIMA_CLIENTE_NETA|COMISIONES|GASTOS_DIRECTOS|GASTOS_INDIRECTOS|VENTAS|MESES_DE_VENTA|LOAN_DURATION|DURACION_MEDIA_MESES|TASA_DE_ENTRADA|SINIESTRO_MEDIO|UNIDAD_SINIESTRO_MEDIO|SINIESTRALIDAD|DEVOLUCIONES|CUOTAS_PROMEDIO|VALOR_CLIENTE|ASISTENCIA_MENSUAL|UNIDAD_ASISTENCIA_MENSUAL|ASISTENCIA_VENTA|UNIDAD_ASISTENCIA_VENTA", _
-        "COSTOS_MENSUALES|UNIDAD_COSTOS_MENSUALES|COSTOS_VENTA|UNIDAD_COSTOS_VENTA|OTROS_COSTOS_DIRECTOS_FIJOS|UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS|CUT_OFF_RUN_OFF|FECHA_CUT_OFF|INFLACION|PROFIT_SHARING|PORCENTAJE_PROFIT_SHARING|REASEGURO|PRIMA_CEDIDA|SINIESTRO_CEDIDO|FORMULA_SINIESTRALIDAD_APLICA|BRIM|KPI_BRIM|UF|FECHA_FIN_TARIFA|OBSERVACIÓN|PLAN_DE_ACCIÓN", _
+        "COSTOS_MENSUALES|UNIDAD_COSTOS_MENSUALES|COSTOS_VENTA|UNIDAD_COSTOS_VENTA|OTROS_COSTOS_DIRECTOS_FIJOS|UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS|CUT_OFF_RUN_OFF|FECHA_CUT_OFF|INFLACION|PROFIT_SHARING|PORCENTAJE_PROFIT_SHARING|REASEGURO|PRIMA_CEDIDA|SINIESTRO_CEDIDO|FORMULA_SINIESTRALIDAD_APLICA|BRIM|FECHA_FIN_TARIFA|OBSERVACIÓN|PLAN_DE_ACCIÓN", _
         "PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO|%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS)|RATIO_DE_ASISTENCIA_SOBRE_LA_NEP|SINIESTRALIDAD_SOBRE_LA_NEP|%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA|IVA_EFECTIVO|IVA_RECUPERABLE|GASTOS_DIRECTOS_/_NEP|GASTOS_INDIRECTOS_/_NEP", _
         "TIENE_ECOSISTEMA_(SI/NO)|CANAL_TMK_(SI/NO)|ROP_(SI/NO)|BONIFICACION_ROP_(%)|VENTA_POR_PLANES_(SI/NO)|PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)|OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)|RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE)", _
         "CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO)|SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO)|TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO)|MESES_GRATIS/CARENCIA|PRODUCT_TYPE|POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)|PERIODICIDAD_(MENSUAL/UNICA)" _
@@ -243,10 +241,6 @@ Public Sub ValidateManualFields(ByRef p As tExportParams)
     If Len(Trim$(p.CodigoTarifa)) = 0 Then Err.Raise vbObjectError + 8010, "ValidateManualFields", "CODIGO_TARIFA vacío."
     If Len(Trim$(p.Poliza)) = 0 Then Err.Raise vbObjectError + 8011, "ValidateManualFields", "POLIZA vacío."
 
-    'UF (CLP)
-    If IsEmptyOrBlank(p.UF_CLP) Then Err.Raise vbObjectError + 8012, "ValidateManualFields", "UF (CLP) vacío."
-    If Not IsNumeric(p.UF_CLP) Then Err.Raise vbObjectError + 8013, "ValidateManualFields", "UF (CLP) debe ser numérico."
-
     'Numéricos obligatorios
     If IsEmptyOrBlank(p.CuotasPromedio) Then Err.Raise vbObjectError + 8014, "ValidateManualFields", "CUOTAS_PROMEDIO vacío."
     If Not IsNumeric(p.CuotasPromedio) Then Err.Raise vbObjectError + 8015, "ValidateManualFields", "CUOTAS_PROMEDIO debe ser numérico."
@@ -273,13 +267,6 @@ Public Sub ValidateManualFields(ByRef p As tExportParams)
     p.VentaPorPlanes = NormalizeSiNo(p.VentaPorPlanes)
 
     'Dependientes
-    If p.Brim = "SI" Then
-        If IsEmptyOrBlank(p.KpiBrim) Then Err.Raise vbObjectError + 8024, "ValidateManualFields", "KPI_BRIM vacío (BRIM=SI)."
-        If Not IsNumeric(p.KpiBrim) Then Err.Raise vbObjectError + 8025, "ValidateManualFields", "KPI_BRIM debe ser numérico."
-    Else
-        p.KpiBrim = "N/A"
-    End If
-
     If p.ROP = "SI" Then
         If IsEmptyOrBlank(p.BonificacionROPPct) Then Err.Raise vbObjectError + 8026, "ValidateManualFields", "BONIFICACION_ROP_(%) vacío (ROP=SI)."
         If Not IsNumeric(p.BonificacionROPPct) Then Err.Raise vbObjectError + 8027, "ValidateManualFields", "BONIFICACION_ROP_(%) debe ser numérico."
@@ -841,9 +828,6 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
     WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
 
-    'UF manual (formulario)
-    WriteByHeader baseWS, headers, rowIndex, "UF", p.UF_CLP
-
     'TODOs
     WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", TODO_TEXT
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_MENSUAL", TODO_TEXT
@@ -894,7 +878,6 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
 
     'Extras
     WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.ProfitSharingPct
-    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", p.KpiBrim
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
     WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 
@@ -1073,7 +1056,7 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
     WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD_(MENSUAL/UNICA)", periodicidadTxt
 
-    'LOAN_DURATION (regla exacta)
+    'LOAN_DURATION
     If IsPrimaUnicaText(periodicidadTxt) Then
         WriteByHeader baseWS, headers, rowIndex, "LOAN_DURATION", loanDuration
         WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", TODO_TEXT
@@ -1092,8 +1075,6 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
     WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
 
-    'UF manual (formulario)
-    WriteByHeader baseWS, headers, rowIndex, "UF", p.UF_CLP
 
     'TODOs
     WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", TODO_TEXT
@@ -1138,7 +1119,6 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
 
     'Auxiliares del listado
     WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.ProfitSharingPct
-    WriteByHeader baseWS, headers, rowIndex, "KPI_BRIM", p.KpiBrim
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
     WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 

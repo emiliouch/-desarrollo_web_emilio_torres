@@ -22,7 +22,9 @@ Private Sub UserForm_Initialize()
     SyncConditionalFields
 End Sub
 
+'========================
 ' Clicks toggles
+'========================
 Private Sub tglROP_Click(): ApplyToggleCaption "tglROP": SyncConditionalFields: End Sub
 Private Sub tglVentaPorPlanes_Click(): ApplyToggleCaption "tglVentaPorPlanes": SyncConditionalFields: End Sub
 
@@ -31,9 +33,9 @@ Private Sub tglBrim_Click(): ApplyToggleCaption "tglBrim": SyncConditionalFields
 Private Sub tglFormulaSiniestralidad_Click(): ApplyToggleCaption "tglFormulaSiniestralidad": SyncConditionalFields: End Sub
 Private Sub tglPolizaContinuacion_Click(): ApplyToggleCaption "tglPolizaContinuacion": SyncConditionalFields: End Sub
 
-Private Sub tglProductoCuentaAsistencia_Click(): ApplyToggleCaption "tglProductoCuentaAsistencia": End Sub
-Private Sub tglTieneEcosistema_Click(): ApplyToggleCaption "tglTieneEcosistema": End Sub
-Private Sub tglCanalTMK_Click(): ApplyToggleCaption "tglCanalTMK": End Sub
+Private Sub tglProductoCuentaAsistencia_Click(): ApplyToggleCaption "tglProductoCuentaAsistencia": SyncConditionalFields: End Sub
+Private Sub tglTieneEcosistema_Click(): ApplyToggleCaption "tglTieneEcosistema": SyncConditionalFields: End Sub
+Private Sub tglCanalTMK_Click(): ApplyToggleCaption "tglCanalTMK": SyncConditionalFields: End Sub
 
 '========================
 ' Botones
@@ -54,10 +56,9 @@ Private Sub cmdExportar_Click()
     p.Observacion = Trim$(txtObservacion.Text)
     p.PlanAccion = Trim$(txtPlanAccion.Text)
 
-    'Numéricos
+    'Numéricos obligatorios siempre
     p.CuotasPromedio = ParseNum(txtCuotasPromedio.Text)
     p.PrimaCedida = ParseNum(txtPrimaCedida.Text)
-    p.DescuentoAsistenciaPct = ParseNum(txtDescuentoAsistenciaPct.Text)
 
     'SI/NO
     p.ProductoCuentaAsistencia = ToggleToSiNo("tglProductoCuentaAsistencia")
@@ -65,11 +66,17 @@ Private Sub cmdExportar_Click()
     p.CanalTMK = ToggleToSiNo("tglCanalTMK")
 
     p.FormulaSiniestralidadAplica = ToggleToSiNo("tglFormulaSiniestralidad")
-
     p.ProfitSharing = ToggleToSiNo("tglProfitSharing")
-
     p.Brim = ToggleToSiNo("tglBrim")
 
+    'Descuento asistencia: SOLO si ProductoCuentaAsistencia=SI
+    If p.ProductoCuentaAsistencia = "SI" Then
+        p.DescuentoAsistenciaPct = ParseNum(txtDescuentoAsistenciaPct.Text)
+    Else
+        p.DescuentoAsistenciaPct = "N/A"
+    End If
+
+    'ROP
     p.ROP = ToggleToSiNo("tglROP")
     If p.ROP = "SI" Then
         p.BonificacionROPPct = ParseNum(txtBonificacionROPPct.Text)
@@ -77,6 +84,7 @@ Private Sub cmdExportar_Click()
         p.BonificacionROPPct = "N/A"
     End If
 
+    'Venta por planes
     p.VentaPorPlanes = ToggleToSiNo("tglVentaPorPlanes")
     If p.VentaPorPlanes = "SI" Then
         p.PlanSheetsRaw = Trim$(txtPlanSheetsRaw.Text)
@@ -108,36 +116,39 @@ EH:
     MsgBox Err.Description, vbExclamation
 End Sub
 
+'========================
 ' UI helpers
+'========================
 Private Sub SyncConditionalFields()
     Dim ropOn As Boolean
     Dim contOn As Boolean
-    Dim psOn As Boolean
-    Dim psKpiOn As Boolean
     Dim vppOn As Boolean
+    Dim asistOn As Boolean
 
     ropOn = (ToggleToSiNo("tglROP") = "SI")
     contOn = (ToggleToSiNo("tglPolizaContinuacion") = "SI")
-    psOn = (ToggleToSiNo("tglProfitSharing") = "SI")
     vppOn = (ToggleToSiNo("tglVentaPorPlanes") = "SI")
+    asistOn = (ToggleToSiNo("tglProductoCuentaAsistencia") = "SI")
 
     'ROP -> Bonificación visible solo si ROP=SI
     SetVisibleEnabled "txtBonificacionROPPct", ropOn
     SetVisibleEnabled "lblBonificacionROPPct", ropOn
     SetVisibleEnabled "Label13", ropOn  '<< este es el que te falta
-
     If Not ropOn Then ClearIfExists "txtBonificacionROPPct"
 
     'Continuación -> textbox visible solo si SI
     SetVisibleEnabled "txtPolizaContinuacion", contOn
     SetVisibleEnabled "lblPolizaContinuacion", contOn
-
     If Not contOn Then ClearIfExists "txtPolizaContinuacion"
 
-    'ProfitSharing -> % visible solo si SI
+    'Producto con asistencia -> Descuento visible solo si SI
+    SetVisibleEnabled "txtDescuentoAsistenciaPct", asistOn
+    SetVisibleEnabled "Label11", asistOn
+    If Not asistOn Then ClearIfExists "txtDescuentoAsistenciaPct"
+
+    'ProfitSharing -> % (ya no se usa; lo dejamos apagado por consistencia)
     SetVisibleEnabled "txtProfitSharing", False
     SetVisibleEnabled "lblProfitSharingPct", False
-
     ClearIfExists "txtProfitSharing"
 
     'Venta por planes -> PlanSheetsRaw + labels visibles solo si SI
@@ -145,10 +156,8 @@ Private Sub SyncConditionalFields()
     SetVisibleEnabled "Label5", vppOn
     SetVisibleEnabled "Label21", vppOn
     SetVisibleEnabled "Label22", vppOn
-
     If Not vppOn Then ClearIfExists "txtPlanSheetsRaw"
 End Sub
-
 
 Private Sub ApplyToggleCaption(ByVal ctlName As String)
     If Not ControlExists(ctlName) Then Exit Sub

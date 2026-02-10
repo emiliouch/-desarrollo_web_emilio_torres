@@ -68,7 +68,6 @@ Public Type tExportParams
 
     'SI/NO + dependientes
     ProfitSharing As String              'SI/NO
-    ProfitSharingPct As Variant          'solo si ProfitSharing=SI
 
     FormulaSiniestralidadAplica As String 'SI/NO
 

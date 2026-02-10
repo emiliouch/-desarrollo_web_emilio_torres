@@ -121,34 +121,53 @@ End Sub
 
 ' UI helpers
 Private Sub SyncConditionalFields()
-    'ROP -> Bonificación visible solo si ROP=SI
-    SetVisibleEnabled "txtBonificacionROPPct", (ToggleToSiNo("tglROP") = "SI")
-    SetVisibleEnabled "lblBonificacionROPPct", (ToggleToSiNo("tglROP") = "SI")
+    Dim ropOn As Boolean
+    Dim contOn As Boolean
+    Dim psOn As Boolean
+    Dim psKpiOn As Boolean
+    Dim brimOn As Boolean
+    Dim vppOn As Boolean
 
-    If ToggleToSiNo("tglROP") <> "SI" Then ClearIfExists "txtBonificacionROPPct"
+    ropOn = (ToggleToSiNo("tglROP") = "SI")
+    contOn = (ToggleToSiNo("tglPolizaContinuacion") = "SI")
+    psOn = (ToggleToSiNo("tglProfitSharing") = "SI")
+    brimOn = (ToggleToSiNo("tglBrim") = "SI")
+    vppOn = (ToggleToSiNo("tglVentaPorPlanes") = "SI")
+
+    'ROP -> Bonificación visible solo si ROP=SI
+    SetVisibleEnabled "txtBonificacionROPPct", ropOn
+    SetVisibleEnabled "lblBonificacionROPPct", ropOn
+    SetVisibleEnabled "Label13", ropOn  '<< este es el que te falta
+
+    If Not ropOn Then ClearIfExists "txtBonificacionROPPct"
 
     'Continuación -> textbox visible solo si SI
-    SetVisibleEnabled "txtPolizaContinuacion", (ToggleToSiNo("tglPolizaContinuacion") = "SI")
-    SetVisibleEnabled "lblPolizaContinuacion", (ToggleToSiNo("tglPolizaContinuacion") = "SI")
+    SetVisibleEnabled "txtPolizaContinuacion", contOn
+    SetVisibleEnabled "lblPolizaContinuacion", contOn
 
-    If ToggleToSiNo("tglPolizaContinuacion") <> "SI" Then ClearIfExists "txtPolizaContinuacion"
+    If Not contOn Then ClearIfExists "txtPolizaContinuacion"
 
     'ProfitSharing -> % visible solo si SI
-    SetVisibleEnabled "txtProfitSharing", (ToggleToSiNo("tglProfitSharing") = "SI")
-    SetVisibleEnabled "lblProfitSharingPct", (ToggleToSiNo("tglProfitSharing") = "SI")
+    SetVisibleEnabled "txtProfitSharing", psOn
+    SetVisibleEnabled "lblProfitSharingPct", psOn
 
-    If ToggleToSiNo("tglProfitSharing") <> "SI" Then ClearIfExists "txtProfitSharing"
+    If Not psOn Then ClearIfExists "txtProfitSharing"
 
     'BRIM -> KPI visible solo si SI
-    SetVisibleEnabled "txtBrim", (ToggleToSiNo("tglBrim") = "SI")
-    SetVisibleEnabled "lblKpiBrim", (ToggleToSiNo("tglBrim") = "SI")
+    SetVisibleEnabled "txtBrim", brimOn
+    SetVisibleEnabled "lblKpiBrim", brimOn
 
-    If ToggleToSiNo("tglBrim") <> "SI" Then ClearIfExists "txtBrim"
+    If Not brimOn Then ClearIfExists "txtBrim"
 
-    'Venta por planes -> PlanSheetsRaw habilitado solo si SI
-    SetVisibleEnabled "txtPlanSheetsRaw", (ToggleToSiNo("tglVentaPorPlanes") = "SI")
-    If ToggleToSiNo("tglVentaPorPlanes") <> "SI" Then ClearIfExists "txtPlanSheetsRaw"
+    'Venta por planes -> PlanSheetsRaw + labels visibles solo si SI
+    SetVisibleEnabled "txtPlanSheetsRaw", vppOn
+    SetVisibleEnabled "Label5", vppOn
+    SetVisibleEnabled "Label21", vppOn
+    SetVisibleEnabled "Label22", vppOn
+
+    If Not vppOn Then ClearIfExists "txtPlanSheetsRaw"
 End Sub
+
 
 Private Sub ApplyToggleCaption(ByVal ctlName As String)
     If Not ControlExists(ctlName) Then Exit Sub

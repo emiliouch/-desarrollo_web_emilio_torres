@@ -203,7 +203,6 @@ Private Function ParseNum(ByVal s As String) As Variant
         Exit Function
     End If
 
-    'Chile típico: 1.234,56 -> 1234.56
     s = Replace(s, ".", "")
     s = Replace(s, ",", ".")
     ParseNum = CDbl(Val(s))

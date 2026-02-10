@@ -183,7 +183,7 @@ Private Function RequiredHeaders_Base() As Variant
 
     chunks = Array( _
         "ID_INTERNO|CODIGO_TARIFA|POLIZA|SOCIO|PLAN|PRIMA_CLIENTE_NETA|UNIDAD_PRIMA_CLIENTE_NETA|COMISIONES|GASTOS_DIRECTOS|GASTOS_INDIRECTOS|VENTAS|MESES_DE_VENTA|LOAN_DURATION|DURACION_MEDIA_MESES|TASA_DE_ENTRADA|SINIESTRO_MEDIO|UNIDAD_SINIESTRO_MEDIO|SINIESTRALIDAD|DEVOLUCIONES|CUOTAS_PROMEDIO|VALOR_CLIENTE|ASISTENCIA_MENSUAL|UNIDAD_ASISTENCIA_MENSUAL|ASISTENCIA_VENTA|UNIDAD_ASISTENCIA_VENTA", _
-        "COSTOS_MENSUALES|UNIDAD_COSTOS_MENSUALES|COSTOS_VENTA|UNIDAD_COSTOS_VENTA|OTROS_COSTOS_DIRECTOS_FIJOS|UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS|CUT_OFF_RUN_OFF|FECHA_CUT_OFF|INFLACION|PROFIT_SHARING|PORCENTAJE_PROFIT_SHARING|REASEGURO|PRIMA_CEDIDA|SINIESTRO_CEDIDO|FORMULA_SINIESTRALIDAD_APLICA|BRIM|FECHA_FIN_TARIFA|OBSERVACIÓN|PLAN_DE_ACCIÓN", _
+        "COSTOS_MENSUALES|UNIDAD_COSTOS_MENSUALES|COSTOS_VENTA|UNIDAD_COSTOS_VENTA|OTROS_COSTOS_DIRECTOS_FIJOS|UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS|CUT_OFF_RUN_OFF|FECHA_CUT_OFF|INFLACION|PROFIT_SHARING|REASEGURO|PRIMA_CEDIDA|SINIESTRO_CEDIDO|FORMULA_SINIESTRALIDAD_APLICA|BRIM|FECHA_FIN_TARIFA|OBSERVACIÓN|PLAN_DE_ACCIÓN", _
         "PRODUCTO_CUENTA_CON_ASISTENCIA_SI_NO|%_DE_DESCUENTO_ASISTENCIA_(CÁLCULO_LOADINGS)|RATIO_DE_ASISTENCIA_SOBRE_LA_NEP|SINIESTRALIDAD_SOBRE_LA_NEP|%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA|IVA_EFECTIVO|IVA_RECUPERABLE|GASTOS_DIRECTOS_/_NEP|GASTOS_INDIRECTOS_/_NEP", _
         "TIENE_ECOSISTEMA_(SI/NO)|CANAL_TMK_(SI/NO)|ROP_(SI/NO)|BONIFICACION_ROP_(%)|VENTA_POR_PLANES_(SI/NO)|PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)|OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)|RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE)", _
         "CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO)|SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO)|TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO)|MESES_GRATIS/CARENCIA|PRODUCT_TYPE|POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)|PERIODICIDAD_(MENSUAL/UNICA)" _
@@ -248,9 +248,6 @@ Public Sub ValidateManualFields(ByRef p As tExportParams)
     If IsEmptyOrBlank(p.PrimaCedida) Then Err.Raise vbObjectError + 8016, "ValidateManualFields", "PRIMA_CEDIDA vacío."
     If Not IsNumeric(p.PrimaCedida) Then Err.Raise vbObjectError + 8017, "ValidateManualFields", "PRIMA_CEDIDA debe ser numérico."
 
-    If IsEmptyOrBlank(p.DescuentoAsistenciaPct) Then Err.Raise vbObjectError + 8018, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA vacío."
-    If Not IsNumeric(p.DescuentoAsistenciaPct) Then Err.Raise vbObjectError + 8019, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA debe ser numérico."
-
     'Textos obligatorios
     If Len(Trim$(p.Observacion)) = 0 Then Err.Raise vbObjectError + 8020, "ValidateManualFields", "OBSERVACIÓN vacía."
     If Len(Trim$(p.PlanAccion)) = 0 Then Err.Raise vbObjectError + 8021, "ValidateManualFields", "PLAN_DE_ACCIÓN vacío."
@@ -261,6 +258,16 @@ Public Sub ValidateManualFields(ByRef p As tExportParams)
     p.Brim = NormalizeSiNo(p.Brim)
 
     p.ProductoCuentaAsistencia = NormalizeSiNo(p.ProductoCuentaAsistencia)
+    'Descuento asistencia: solo si el producto cuenta con asistencia
+    If p.ProductoCuentaAsistencia = "SI" Then
+        If IsEmptyOrBlank(p.DescuentoAsistenciaPct) Then _
+            Err.Raise vbObjectError + 8018, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA vacío (Producto con asistencia=SI)."
+        If Not IsNumeric(p.DescuentoAsistenciaPct) Then _
+            Err.Raise vbObjectError + 8019, "ValidateManualFields", "%_DE_DESCUENTO_ASISTENCIA debe ser numérico (Producto con asistencia=SI)."
+    Else
+        p.DescuentoAsistenciaPct = "N/A"
+    End If
+
     p.TieneEcosistema = NormalizeSiNo(p.TieneEcosistema)
     p.CanalTMK = NormalizeSiNo(p.CanalTMK)
     p.ROP = NormalizeSiNo(p.ROP)
@@ -575,7 +582,7 @@ Public Sub ExportarRepositorio(ByRef p As tExportParams, ByVal closeRepoAfter As
     '=========
     If hasPlans Then
         AppendPlanesAndRates baseWS, headers, tasaWS, tasaHeaders, porWS, porHeaders, _
-                            nextRow, nextId, p, socioAuto, outWB, planInputs, planOrder, bpFiles, rutaRelBPCons
+                            nextRow, nextId, p, socioAuto, outWB, planInputs, planOrder, bpFiles, baseFolder
     End If
 
     repoWB.Save
@@ -837,8 +844,8 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", TODO_TEXT
 
     'Costos mensuales (si existe Parametros; si no => TODO)
-    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", costosMensualesCLP
-    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", IIf(IsNumeric(costosMensualesCLP), "CLP", TODO_TEXT)
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", TODO_TEXT
 
     'OTROS_COSTOS_DIRECTOS_FIJOS: KR45 / meses expuestos
     WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_DIRECTOS_FIJOS", otrosCostosFijos
@@ -905,12 +912,14 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
                                 ByRef p As tExportParams, ByVal socioAuto As String, _
                                 ByVal outWB As Workbook, ByVal planInputs As Object, _
                                 ByVal planOrder As Collection, ByVal bpFiles As Variant, _
-                                ByVal rutaRelBPCons As String)
+                                ByVal baseFolder As String)
 
     Dim i As Long
     For i = 1 To planOrder.Count
         Dim planName As String
         planName = CStr(planOrder(i))
+        Dim planFullPath As String
+        Dim rutaRelBPPlan As String
 
         If Not WorksheetExists(outWB, planName) Then
             Err.Raise vbObjectError + 7501, "AppendPlanesAndRates", "No existe hoja de plan '" & planName & "' en " & outWB.Name
@@ -981,10 +990,16 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
         Dim prRiesgos As Variant, prCap As Variant, prSin As Variant, prTasa As Variant
         Dim prN As Long
 
-        ReadBPPlanData bpFiles, planName, CDbl(p.UF_CLP), _
+        ReadBPPlanData bpFiles, planName, planFullPath, _
             costosMensualesCLP, mesesCarencia, _
             bpComPct, bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
             prFechaVenta, prRiesgos, prCap, prSin, prTasa, prN
+
+        If Len(Trim$(planFullPath)) > 0 Then
+            rutaRelBPPlan = MakeRelativeToFolder(baseFolder, planFullPath)
+        Else
+            rutaRelBPPlan = "N/A"
+        End If
 
         'Nuevo ID/row
         Dim rowIndex As Long, idValue As Long
@@ -1000,7 +1015,7 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
                          costosMensualesCLP, mesesCarencia, _
                          bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
                          bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
-                         rutaRelBPCons
+                         rutaRelBPPlan
 
         'Tasa_Caida (bloque)
         AppendTasaCaidaPlan tasaWS, tasaHeaders, idValue, planName, d
@@ -1025,7 +1040,7 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
                             ByVal costosMensualesCLP As Variant, ByVal mesesCarencia As Variant, _
                             ByVal tasaEntrada As Variant, ByVal sinMedio As Variant, ByVal otrosCostosFijos As Variant, _
                             ByVal reaseguroTxt As Variant, ByVal siniestroCedido As Variant, ByVal ratioAsistSobreNEP As Variant, _
-                            ByVal rutaRelBPCons As String)
+                            ByVal ruta As String)
 
     'Identidad
     WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
@@ -1035,7 +1050,7 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "PLAN", planName
 
     'Si existe header RUTA, guardamos ruta relativa al BP consolidado
-    If headers.Exists("RUTA") Then WriteByHeader baseWS, headers, rowIndex, "RUTA", rutaRelBPCons
+    If headers.Exists("RUTA") Then WriteByHeader baseWS, headers, rowIndex, "RUTA", ruta
 
     'Condor Output
     WriteByHeader baseWS, headers, rowIndex, "VENTAS", m.Ventas
@@ -1085,8 +1100,8 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", TODO_TEXT
 
     'COSTOS_MENSUALES (si Parametros existe; si no => TODO)
-    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", costosMensualesCLP
-    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", IIf(IsNumeric(costosMensualesCLP), "CLP", TODO_TEXT)
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", TODO_TEXT
 
     'MESES_GRATIS/CARENCIA
     WriteByHeader baseWS, headers, rowIndex, "MESES_GRATIS/CARENCIA", IIf(IsEmptyOrBlank(mesesCarencia), TODO_TEXT, mesesCarencia)
@@ -1404,16 +1419,20 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, ByVal ufCLP As Double,
 End Sub
 
 'BP PLAN: Parametros + BP Mensual + Por_Riesgo
-Private Sub ReadBPPlanData(ByVal files As Variant, ByVal planName As String, ByVal ufCLP As Double, _
+Private Sub ReadBPPlanData(ByVal files As Variant, ByVal planName As String, _
+    ByRef planFullPath As String, _
     ByRef costosMensualesCLP As Variant, ByRef mesesCarencia As Variant, _
     ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
     ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant, _
     ByRef prFechaVenta As String, ByRef prRiesgos As Variant, ByRef prCap As Variant, ByRef prSin As Variant, ByRef prTasa As Variant, ByRef prN As Long)
 
+    planFullPath = FS_FindBestFileByTokenFiltered(files, planName, False)
+
     Dim planPath As String
-    planPath = FS_FindBestFileByTokenFiltered(files, planName, False)
+    planPath = planFullPath
 
     If Len(planPath) = 0 Then
+        planFullPath = vbNullString
         costosMensualesCLP = TODO_TEXT: mesesCarencia = TODO_TEXT
         comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
         reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
@@ -1429,25 +1448,7 @@ Private Sub ReadBPPlanData(ByVal files As Variant, ByVal planName As String, ByV
         Dim wsP As Worksheet
         Set wsP = wb.Worksheets(BP_PARAMS_SHEET)
 
-        'COSTOS_MENSUALES = (I53 + F55 + (C6*C14)) * UF_CLP
-        Dim asistUF As Double
-        asistUF = CDbl(ValSafe(wsP.Range(BP_PARAMS_ASIST_MENSUAL).Value2))
-
-        Dim costoRecaudF55 As Double
-        costoRecaudF55 = CDbl(ValSafe(wsP.Range("F55").Value2))
-
-        Dim primaNetaC6 As Double
-        primaNetaC6 = CDbl(ValSafe(wsP.Range("C6").Value2))
-
-        Dim pctBTG_C14 As Double
-        pctBTG_C14 = CDbl(ValSafe(wsP.Range("C14").Value2))
-
-        Dim btgUF As Double
-        btgUF = primaNetaC6 * pctBTG_C14
-
-        Dim totalUF As Double
-        totalUF = asistUF + costoRecaudF55 + btgUF
-        costosMensualesCLP = totalUF * ufCLP
+        costosMensualesCLP = TODO_TEXT
 
         mesesCarencia = wsP.Range(BP_PARAMS_MESES_CARENCIA).Value2
 

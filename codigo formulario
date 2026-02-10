@@ -55,7 +55,6 @@ Private Sub cmdExportar_Click()
     p.PlanAccion = Trim$(txtPlanAccion.Text)
 
     'Numéricos
-    p.UF_CLP = ParseNum(txtUF_CLP.Text)
     p.CuotasPromedio = ParseNum(txtCuotasPromedio.Text)
     p.PrimaCedida = ParseNum(txtPrimaCedida.Text)
     p.DescuentoAsistenciaPct = ParseNum(txtDescuentoAsistenciaPct.Text)
@@ -70,11 +69,6 @@ Private Sub cmdExportar_Click()
     p.ProfitSharing = ToggleToSiNo("tglProfitSharing")
 
     p.Brim = ToggleToSiNo("tglBrim")
-    If p.Brim = "SI" Then
-        p.KpiBrim = ParseNum(txtBrim.Text)
-    Else
-        p.KpiBrim = "N/A"
-    End If
 
     p.ROP = ToggleToSiNo("tglROP")
     If p.ROP = "SI" Then
@@ -120,13 +114,11 @@ Private Sub SyncConditionalFields()
     Dim contOn As Boolean
     Dim psOn As Boolean
     Dim psKpiOn As Boolean
-    Dim brimOn As Boolean
     Dim vppOn As Boolean
 
     ropOn = (ToggleToSiNo("tglROP") = "SI")
     contOn = (ToggleToSiNo("tglPolizaContinuacion") = "SI")
     psOn = (ToggleToSiNo("tglProfitSharing") = "SI")
-    brimOn = (ToggleToSiNo("tglBrim") = "SI")
     vppOn = (ToggleToSiNo("tglVentaPorPlanes") = "SI")
 
     'ROP -> Bonificación visible solo si ROP=SI
@@ -147,13 +139,6 @@ Private Sub SyncConditionalFields()
     SetVisibleEnabled "lblProfitSharingPct", False
 
     ClearIfExists "txtProfitSharing"
-
-    'BRIM -> KPI visible solo si SI
-    SetVisibleEnabled "txtBrim", brimOn
-    SetVisibleEnabled "lblKpiBrim", brimOn
-    SetVisibleEnabled "Label23", brimOn
-
-    If Not brimOn Then ClearIfExists "txtBrim"
 
     'Venta por planes -> PlanSheetsRaw + labels visibles solo si SI
     SetVisibleEnabled "txtPlanSheetsRaw", vppOn

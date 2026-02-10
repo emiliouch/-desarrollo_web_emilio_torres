@@ -805,7 +805,7 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "SOCIO", socioAuto
     WriteByHeader baseWS, headers, rowIndex, "PLAN", planLabel
 
-    'Si existe header RUTA, guardamos ruta relativa al BP consolidado
+
     If headers.Exists("RUTA") Then WriteByHeader baseWS, headers, rowIndex, "RUTA", rutaRelBPCons
 
     'Condor Output
@@ -885,7 +885,6 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
 
     'Extras
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
-    WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 
     WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
     WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRec
@@ -1133,7 +1132,6 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
 
     'Auxiliares del listado
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
-    WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 
     WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
     WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRec
@@ -1372,12 +1370,18 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
     Dim wb As Workbook
     Set wb = Workbooks.Open(Filename:=consPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
 
-    'Parametros opcional (por si lo llegasen a agregar)
+    'Parametros opcional
     If WorksheetExists(wb, BP_PARAMS_SHEET) Then
         Dim wsP As Worksheet
         Set wsP = wb.Worksheets(BP_PARAMS_SHEET)
+        mesesCarencia = wsP.Range(BP_PARAMS_MESES_CARENCIA).Value2
+    Else
+        mesesCarencia = TODO_TEXT
+    End If
 
-    'BP Mensual (obligatorio para los nuevos cálculos)
+    costosMensualesCLP = TODO_TEXT
+
+    'BP Mensual
     If WorksheetExists(wb, BP_MENSUAL_SHEET) Then
         Dim wsM As Worksheet
         Set wsM = wb.Worksheets(BP_MENSUAL_SHEET)

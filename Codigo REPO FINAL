@@ -43,7 +43,7 @@ Public Sub ExportarRepositorio_UI()
         Exit Sub
     End If
 
-    p = frmExportRepo.OutParams
+    p = gExportParams
     closeRepoAfter = frmExportRepo.CloseRepoAfter  'por defecto False si no tienes el toggle
 
     Unload frmExportRepo

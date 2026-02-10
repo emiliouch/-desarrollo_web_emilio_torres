@@ -273,13 +273,6 @@ Public Sub ValidateManualFields(ByRef p As tExportParams)
     p.VentaPorPlanes = NormalizeSiNo(p.VentaPorPlanes)
 
     'Dependientes
-    If p.ProfitSharing = "SI" Then
-        If IsEmptyOrBlank(p.ProfitSharingPct) Then Err.Raise vbObjectError + 8022, "ValidateManualFields", "PORCENTAJE_PROFIT_SHARING vacío (Profit Sharing=SI)."
-        If Not IsNumeric(p.ProfitSharingPct) Then Err.Raise vbObjectError + 8023, "ValidateManualFields", "PORCENTAJE_PROFIT_SHARING debe ser numérico."
-    Else
-        p.ProfitSharingPct = "N/A"
-    End If
-
     If p.Brim = "SI" Then
         If IsEmptyOrBlank(p.KpiBrim) Then Err.Raise vbObjectError + 8024, "ValidateManualFields", "KPI_BRIM vacío (BRIM=SI)."
         If Not IsNumeric(p.KpiBrim) Then Err.Raise vbObjectError + 8025, "ValidateManualFields", "KPI_BRIM debe ser numérico."

@@ -1,7 +1,6 @@
 Option Explicit
 
 Public Cancelled As Boolean
-Public OutParams As tExportParams
 Public CloseRepoAfter As Boolean  'no lo estás usando -> queda False
 
 Private Sub UserForm_Initialize()
@@ -111,7 +110,7 @@ Private Sub cmdExportar_Click()
     'Validación central del módulo
     ValidateManualFields p
 
-    OutParams = p
+    gExportParams = p
     Cancelled = False
     Me.Hide
     Exit Sub

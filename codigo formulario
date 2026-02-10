@@ -68,11 +68,6 @@ Private Sub cmdExportar_Click()
     p.FormulaSiniestralidadAplica = ToggleToSiNo("tglFormulaSiniestralidad")
 
     p.ProfitSharing = ToggleToSiNo("tglProfitSharing")
-    If p.ProfitSharing = "SI" Then
-        p.ProfitSharingPct = ParseNum(txtProfitSharing.Text)
-    Else
-        p.ProfitSharingPct = "N/A"
-    End If
 
     p.Brim = ToggleToSiNo("tglBrim")
     If p.Brim = "SI" Then
@@ -148,14 +143,15 @@ Private Sub SyncConditionalFields()
     If Not contOn Then ClearIfExists "txtPolizaContinuacion"
 
     'ProfitSharing -> % visible solo si SI
-    SetVisibleEnabled "txtProfitSharing", psOn
-    SetVisibleEnabled "lblProfitSharingPct", psOn
+    SetVisibleEnabled "txtProfitSharing", False
+    SetVisibleEnabled "lblProfitSharingPct", False
 
-    If Not psOn Then ClearIfExists "txtProfitSharing"
+    ClearIfExists "txtProfitSharing"
 
     'BRIM -> KPI visible solo si SI
     SetVisibleEnabled "txtBrim", brimOn
     SetVisibleEnabled "lblKpiBrim", brimOn
+    SetVisibleEnabled "Label23", brimOn
 
     If Not brimOn Then ClearIfExists "txtBrim"
 

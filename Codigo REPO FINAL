@@ -765,7 +765,7 @@ Private Sub AppendConsolidado(ByVal baseWS As Worksheet, ByVal headers As Object
     Dim bpOtrosCostosFijos As Variant, bpReaseguroTxt As Variant, bpSiniestroCedido As Variant, bpRatioAsist As Variant
     Dim costosMensualesCLP As Variant, mesesCarencia As Variant
 
-    ReadBPConsolidadoData bpFiles, CDbl(p.UF_CLP), costosMensualesCLP, mesesCarencia, _
+    ReadBPConsolidadoData bpFiles, costosMensualesCLP, mesesCarencia, _
         bpComPct, bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist
 
     'Nuevo ID/row
@@ -884,7 +884,6 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "RATIO_DE_ASISTENCIA_SOBRE_LA_NEP", ratioAsistSobreNEP
 
     'Extras
-    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.ProfitSharingPct
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
     WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 
@@ -1133,7 +1132,6 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)", p.PolizaEsContinuacion
 
     'Auxiliares del listado
-    WriteByHeader baseWS, headers, rowIndex, "PORCENTAJE_PROFIT_SHARING", p.ProfitSharingPct
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
     WriteByHeader baseWS, headers, rowIndex, "%_DE_COMISIÓN_BRUTA_SOBRE_PRIMA_BRUTA", TODO_TEXT
 
@@ -1356,7 +1354,7 @@ Private Function CalcPrimaClienteNeta(ByVal gwp As Double, ByVal expuestos As Do
 End Function
 
 ' BP CONSOLIDADO BP Mensual
-Private Sub ReadBPConsolidadoData(ByVal files As Variant, ByVal ufCLP As Double, _
+Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
     ByRef costosMensualesCLP As Variant, ByRef mesesCarencia As Variant, _
     ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
     ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant)
@@ -1378,32 +1376,6 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, ByVal ufCLP As Double,
     If WorksheetExists(wb, BP_PARAMS_SHEET) Then
         Dim wsP As Worksheet
         Set wsP = wb.Worksheets(BP_PARAMS_SHEET)
-
-        'COSTOS_MENSUALES = (I53 + F55 + (C6*C14)) * UF_CLP
-        Dim asistUF As Double
-        asistUF = CDbl(ValSafe(wsP.Range(BP_PARAMS_ASIST_MENSUAL).Value2))
-
-        Dim costoRecaudF55 As Double
-        costoRecaudF55 = CDbl(ValSafe(wsP.Range("F55").Value2))
-
-        Dim primaNetaC6 As Double
-        primaNetaC6 = CDbl(ValSafe(wsP.Range("C6").Value2))
-
-        Dim pctBTG_C14 As Double
-        pctBTG_C14 = CDbl(ValSafe(wsP.Range("C14").Value2))
-
-        Dim btgUF As Double
-        btgUF = primaNetaC6 * pctBTG_C14
-
-        Dim totalUF As Double
-        totalUF = asistUF + costoRecaudF55 + btgUF
-
-        costosMensualesCLP = totalUF * ufCLP
-        mesesCarencia = wsP.Range(BP_PARAMS_MESES_CARENCIA).Value2
-    Else
-        costosMensualesCLP = TODO_TEXT
-        mesesCarencia = TODO_TEXT
-    End If
 
     'BP Mensual (obligatorio para los nuevos cálculos)
     If WorksheetExists(wb, BP_MENSUAL_SHEET) Then

@@ -1,0 +1,46 @@
+'===========================================================
+' NUEVOS CAMPOS (BP Mensual) - CLP / ratios
+'===========================================================
+
+'--- COSTOS_VENTA = KR46
+Dim numCostosVenta As Double
+numCostosVenta = CDbl(ValSafe(wsM.Range(BP_KR_COSTOS_VENTA).Value2))
+costosVentaCLP = numCostosVenta
+
+'--- ASISTENCIA_MENSUAL = KR88
+Dim numAsistMensual As Double
+numAsistMensual = CDbl(ValSafe(wsM.Range(BP_KR_ASIST_MENSUAL).Value2))
+asistenciaMensualCLP = numAsistMensual
+
+'--- ASISTENCIA_VENTA = KR89
+Dim numAsistVenta As Double
+numAsistVenta = CDbl(ValSafe(wsM.Range(BP_KR_ASIST_VENTA).Value2))
+asistenciaVentaCLP = numAsistVenta
+
+'--- COSTOS_MENSUALES = KR50 - KR46 - KR89
+Dim numTotalGD As Double
+numTotalGD = CDbl(ValSafe(wsM.Range(BP_KR_TOTAL_GD).Value2))
+costosMensualesCLP = numTotalGD - numCostosVenta - numAsistVenta
+
+'--- PRIMA_PROMEDIO_DE_VENTA_UNICA = KR12 / KR7
+Dim numGWP As Double, denExpTot As Double
+numGWP = CDbl(ValSafe(wsM.Range(BP_KR_PRIMA_BRUTA).Value2))                 'KR12
+denExpTot = CDbl(ValSafe(wsM.Range(BP_KR_EXPUESTOS_TOTALES).Value2))        'KR7
+If denExpTot <> 0# Then
+    primaPromVtaUnica = numGWP / denExpTot
+Else
+    primaPromVtaUnica = Empty
+End If
+
+'--- DURACION_MEDIA_MESES = KR8 / KR6
+Dim numExpNoCar As Double, denVentas As Double
+numExpNoCar = CDbl(ValSafe(wsM.Range(BP_KR_EXP_NO_CARENCIA).Value2))        'KR8
+denVentas = CDbl(ValSafe(wsM.Range(BP_KR_VENTAS).Value2))                   'KR6
+If denVentas <> 0# Then
+    duracionMediaMeses = numExpNoCar / denVentas
+Else
+    duracionMediaMeses = Empty
+End If
+
+'--- OTROS_COSTOS = KR49
+otrosCostosCLP = ValSafe(wsM.Range(BP_KR_OTROS_COSTOS).Value2)

@@ -102,9 +102,8 @@ Public Type tExportParams
     PlanSheetsRaw As String
 End Type
 
-'-----------------------
-' Setup: nombres de hojas / celdas ajustables
-'-----------------------
+'Setup: nombres de hojas / celdas ajustables
+
 Private Const REPO_BASE_SHEET As String = "Base"
 Private Const REPO_TASA_SHEET As String = "Tasa_Caida"
 Private Const REPO_POR_RIESGO_SHEET As String = "Por_Riesgo"
@@ -112,9 +111,9 @@ Private Const REPO_POR_RIESGO_SHEET As String = "Por_Riesgo"
 Private Const CONDOR_SHEET_CONSOLIDADO As String = "Results_IFRS4_Net"
 Private Const CONDOR_TOTAL_HEADER_ROW As Long = 17
 Private Const CONDOR_TOTAL_HEADER_TEXT As String = "Total"
-Private Const CONDOR_MIN_DATA_COL As Long = 3   'C
+Private Const CONDOR_MIN_DATA_COL As Long = 3    'C
 
-'Filas (Output Condor) — mismo layout en consolidado y en plan
+'Filas (Output Condor) - mismo layout en consolidado y en plan
 Private Const ROW_VENTAS As Long = 126
 Private Const ROW_GWP As Long = 131
 Private Const ROW_WRITTEN_NET_TAX As Long = 132
@@ -125,7 +124,7 @@ Private Const ROW_CLAIMS As Long = 174
 Private Const ROW_EXPUESTOS As Long = 288
 Private Const ROW_COMISIONES_AUX As Long = 55
 
-'Input Condor (por hoja X/Y/Z)
+'Input Condor (por hoja x/y/z)
 Private Const IN_ADDR_PLANNAME As String = "C4"
 Private Const IN_ADDR_MESES_VENTA As String = "C9"
 Private Const IN_ADDR_INFLACION As String = "C14"
@@ -135,48 +134,58 @@ Private Const IN_ADDR_PRODUCT_TYPE As String = "C49"
 Private Const IN_ADDR_CUTOFF_RUNOFF As String = "C270"
 Private Const IN_ADDR_FECHA_CUTOFF As String = "C272"
 
-'Input Condor tasa caída: fila 27, columnas desde C hasta última col con contenido 
+'Input Condor tasa caida: fila 27, columnas desde C hasta última col con contenido
 Private Const IN_TASA_ROW As Long = 27
-Private Const IN_TASA_COL_START As Long = 3     'C
+Private Const IN_TASA_COL_START As Long = 3    'C
 
-'Global (Condor Input) para SOCIO
+'Global (condor input, para socio)
 Private Const GLOBAL_SHEET As String = "Global"
 Private Const GLOBAL_ADDR_SOCIO As String = "C9"
 
 'BP: hojas
-Private Const BP_PARAMS_SHEET As String = "Parametros"
+Private Const BP_PARAMS_SHEET As String = "Parameters"
 Private Const BP_MENSUAL_SHEET As String = "BP Mensual"
 
-'BP Parametros: celdas que ya usábamos
-Private Const BP_PARAMS_ASIST_MENSUAL As String = "I53"   'UF (se usa internamente para COSTOS_MENSUALES si aplica)
+'BP Parameters: celdas que ya sabíamos
+Private Const BP_PARAMS_ASIST_MENSUAL As String = "I53"
 Private Const BP_PARAMS_MESES_CARENCIA As String = "C8"
 
 'BP Mensual: celdas clave
-Private Const BP_KR_COMISION_BRUTA As String = "KR20"
+Private Const BP_KR_TOTAL_GD As String = "KR50"
+Private Const BP_KR_COSTOS_VENTA As String = "KR46"
+Private Const BP_KR_COSTOS_ASIST_MENSUAL_CLP As String = "KR88"
+Private Const BP_KR_COSTOS_ASIST_VENTA_CLP As String = "KR89"
+
+Private Const BP_KR_EXPUESTOS_TOTALES As String = "KR7"
+Private Const BP_KR_EXPUESTOS_NO_CARENCIA As String = "KR8"
+Private Const BP_KR_VENTAS As String = "KR6"
+Private Const BP_KR_OTROS_COSTOS As String = "KR49"
+
+Private Const BP_KR_COMISION_BRUTA As String = "KR24"
 Private Const BP_KR_PRIMA_BRUTA As String = "KR12"
 
-Private Const BP_KR_TASA_ENTRADA_NUM As String = "KR36"
+Private Const BP_KR_TASA_ENTRADA_NUM As String = "KR40"
 Private Const BP_KR_TASA_ENTRADA_DEN As String = "KR8"
 
-Private Const BP_KR_SIN_MEDIO_NUM As String = "KR37"
-Private Const BP_KR_SIN_MEDIO_DEN As String = "KR36"
+Private Const BP_KR_SIN_MEDIO_NUM As String = "KR41"
+Private Const BP_KR_SIN_MEDIO_DEN As String = "KR40"
 
-Private Const BP_KR_OTROS_COSTOS_FIJOS As String = "KR45"
+Private Const BP_KR_OTROS_COSTOS_FIJOS As String = "KR49"
 
-Private Const BP_CONS_REASEGURO_CELL As String = "KR50"
-Private Const BP_CONS_SINIESTRO_CEDIDO_CELL As String = "KR49"
-Private Const BP_CONS_ASIST_CELL As String = "KR39"
+Private Const BP_CONS_REASEGURO_CELL As String = "KR54"
+Private Const BP_CONS_SINIESTRO_CEDIDO_CELL As String = "KR53"
+Private Const BP_CONS_ASIST_CELL As String = "KR43"
 Private Const BP_CONS_NEP_CELL As String = "KR18"
 
 'BP Mensual: meses expuestos (fila 7 desde C a derecha)
 Private Const BP_MES_EXP_ROW As Long = 7
-Private Const BP_MES_EXP_COL_START As Long = 3 'C
+Private Const BP_MES_EXP_COL_START As Long = 3    'C
 
-'Por_Riesgo en Parametros
+'Por_Riesgo en Parameters
 Private Const PR_FECHA_VENTA_CELL As String = "C24"
-Private Const PR_TABLE_START_ROW As Long = 30
-Private Const PR_COL_RIESGO As Long = 2 'B
-Private Const PR_COL_CAPITAL As Long = 3 'C
+Private Const PR_TABLE_START_ROW As Long = 33
+Private Const PR_COL_RIESGO As Long = 2    'B
+Private Const PR_COL_CAPITAL As Long = 3   'C
 Private Const PR_COL_SIN_MEDIO As Long = 4 'D
 Private Const PR_COL_TASA_ENTR As Long = 5 'E
 

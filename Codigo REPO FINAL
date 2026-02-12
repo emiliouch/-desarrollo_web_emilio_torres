@@ -735,16 +735,15 @@ Private Sub AppendConsolidado(ByVal baseWS As Worksheet, ByVal headers As Object
         siniestralidad = Empty
     End If
 
-
     Dim devolPct As Variant
     If m.WrittenNetTax <> 0# Then devolPct = m.Devoluciones / m.WrittenNetTax Else devolPct = Empty
 
     Dim primaClienteNeta As Variant
-    primaClienteNeta = CalcPrimaClienteNeta(m.GWP, m.Expuestos, m.Ventas, "mensual") 'consolidado como mensual
+    primaClienteNeta = CalcPrimaClienteNeta(m.gwp, m.expuestos, m.ventas, "mensual") 'consolidado como mensual
 
     Dim ivaEfectivo As Variant, ivaRec As Variant
     If m.WrittenNetTax <> 0# Then
-        ivaEfectivo = (m.GWP - m.WrittenNetTax) / m.WrittenNetTax
+        ivaEfectivo = (m.gwp - m.WrittenNetTax) / m.WrittenNetTax
         ivaRec = 0.19 - CDbl(ivaEfectivo)
     Else
         ivaEfectivo = Empty
@@ -763,9 +762,15 @@ Private Sub AppendConsolidado(ByVal baseWS As Worksheet, ByVal headers As Object
     'BP consolidado
     Dim bpComPct As Variant, bpTasaEntrada As Variant, bpSinMedio As Variant
     Dim bpOtrosCostosFijos As Variant, bpReaseguroTxt As Variant, bpSiniestroCedido As Variant, bpRatioAsist As Variant
-    Dim costosMensualesCLP As Variant, mesesCarencia As Variant
+    Dim costosMensualesCLP As Variant, costosVentaCLP As Variant
+    Dim asistMensualCLP As Variant, asistVentaCLP As Variant
+    Dim primaPromVtaUnica As Variant, duracionmediaMeses As Variant
+    Dim otrosCostosCLP As Variant, mesesCarencia As Variant
 
-    ReadBPConsolidadoData bpFiles, costosMensualesCLP, mesesCarencia, _
+    ReadBPConsolidadoData bpFiles, _
+        costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, _
+        primaPromVtaUnica, duracionmediaMeses, otrosCostosCLP, _
+        mesesCarencia, _
         bpComPct, bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist
 
     'Nuevo ID/row
@@ -776,14 +781,14 @@ Private Sub AppendConsolidado(ByVal baseWS As Worksheet, ByVal headers As Object
     nextId = nextId + 1
 
     FillBaseRow_Consolidado baseWS, headers, rowIndex, idValue, p, socioAuto, planLabel, m, _
-                            primaClienteNeta, bpComPct, gastosDirectosPct, gastosIndirectosPct, _
-                            siniestralidad, valorCliente, devolPct, ivaEfectivo, ivaRec, _
-                            costosMensualesCLP, mesesCarencia, _
-                            bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
-                            bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
-                            rutaRelBPCons
-End Sub
+        primaClienteNeta, bpComPct, gastosDirectosPct, gastosIndirectosPct, _
+        siniestralidad, valorCliente, devolPct, ivaEfectivo, ivaRec, _
+        mesesCarencia, _
+        bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
+        bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
+        rutaRelBPCons, costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, primaPromVtaUnica, duracionmediaMeses, otrosCostosCLP
 
+End Sub
 Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As Object, _
                                    ByVal rowIndex As Long, ByVal idValue As Long, _
                                    ByRef p As tExportParams, ByVal socioAuto As String, _

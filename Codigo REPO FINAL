@@ -1034,7 +1034,7 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
             mesesCarencia, _
             bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
             bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
-            rutaRelBPPlan, costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, primaPromVtaUnica, duracionmediaMeses, ot
+            rutaRelBPPlan, costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, primaPromVtaUnica, duracionmediaMeses, otrosCostosCLP
 
         'Tasa_Caida (bloque)
         AppendTasaCaidaPlan tasaWS, tasaHeaders, idValue, planName, d

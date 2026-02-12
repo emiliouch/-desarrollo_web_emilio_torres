@@ -937,8 +937,6 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
     For i = 1 To planOrder.Count
         Dim planName As String
         planName = CStr(planOrder(i))
-        Dim planFullPath As String
-        Dim rutaRelBPPlan As String
 
         If Not WorksheetExists(outWB, planName) Then
             Err.Raise vbObjectError + 7501, "AppendPlanesAndRates", "No existe hoja de plan '" & planName & "' en " & outWB.Name
@@ -975,7 +973,6 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
             siniestralidad = Empty
         End If
 
-
         Dim devolPct As Variant
         If m.WrittenNetTax <> 0# Then devolPct = m.Devoluciones / m.WrittenNetTax Else devolPct = Empty
 
@@ -1000,19 +997,26 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
             gastosIndPct = Empty
         End If
 
-        'BP (un solo open por plan para todo)
-        Dim costosMensualesCLP As Variant, mesesCarencia As Variant
+        'BP outputs
+        Dim planFullPath As String, rutaRelBPPlan As String
+        Dim costosMensualesCLP As Variant, costosVentaCLP As Variant
+        Dim asistMensualCLP As Variant, asistVentaCLP As Variant
+        Dim primaPromVtaUnica As Variant, duracionMediaMeses As Variant
+        Dim otrosCostosCLP As Variant, mesesCarencia As Variant
+
         Dim bpComPct As Variant, bpTasaEntrada As Variant, bpSinMedio As Variant
         Dim bpOtrosCostosFijos As Variant, bpReaseguroTxt As Variant, bpSiniestroCedido As Variant, bpRatioAsist As Variant
 
-        Dim prFechaVenta As String
         Dim prRiesgos As Variant, prCap As Variant, prSin As Variant, prTasa As Variant
         Dim prN As Long
 
         ReadBPPlanData bpFiles, planName, planFullPath, _
-            costosMensualesCLP, mesesCarencia, _
-            bpComPct, bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
-            prFechaVenta, prRiesgos, prCap, prSin, prTasa, prN
+            costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, _
+            primaPromVtaUnica, duracionMediaMeses, otrosCostosCLP, _
+            mesesCarencia, _
+            bpComPct, bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
+            bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
+            prRiesgos, prCap, prSin, prTasa, prN
 
         If Len(Trim$(planFullPath)) > 0 Then
             rutaRelBPPlan = MakeRelativeToFolder(baseFolder, planFullPath)
@@ -1034,13 +1038,14 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
             mesesCarencia, _
             bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
             bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
-            rutaRelBPPlan, costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, primaPromVtaUnica, duracionmediaMeses, otrosCostosCLP
+            rutaRelBPPlan, costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, _
+            primaPromVtaUnica, duracionMediaMeses, otrosCostosCLP
 
-        'Tasa_Caida (bloque)
+        'Tasa_Caida
         AppendTasaCaidaPlan tasaWS, tasaHeaders, idValue, planName, d
 
-        'Por_Riesgo (bloque, en el orden C.. luego D.. luego E..)
-        AppendPorRiesgoPlan porWS, porHeaders, idValue, planName, prFechaVenta, prRiesgos, prCap, prSin, prTasa, prN
+        'Por_Riesgo (SIN fecha)
+        AppendPorRiesgoPlan porWS, porHeaders, idValue, planName, prRiesgos, prCap, prSin, prTasa, prN
     Next i
 End Sub
 
@@ -1060,7 +1065,7 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
                             ByVal tasaEntrada As Variant, ByVal sinMedio As Variant, ByVal otrosCostosFijos As Variant, _
                             ByVal reaseguroTxt As Variant, ByVal siniestroCedido As Variant, ByVal ratioAsistSobreNEP As Variant, _
                             ByVal ruta As String, ByVal costosMensualesCLP As Variant, ByVal costosVentaCLP As Variant, _
-                            ByVal asistMensualCLP As Variant, asistVentaCLP As Variant,
+                            ByVal asistMensualCLP As Variant, ByVal asistVentaCLP As Variant, _
                             ByVal primaPromVtaUnica As Variant, ByVal duracionMediaMeses As Variant, _
                             ByVal otrosCostosCLP As Variant)
 
@@ -1071,7 +1076,6 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "SOCIO", socioAuto
     WriteByHeader baseWS, headers, rowIndex, "PLAN", planName
 
-    'Si existe header RUTA, guardamos ruta relativa al BP consolidado
     If headers.Exists("RUTA") Then WriteByHeader baseWS, headers, rowIndex, "RUTA", ruta
 
     'Condor Output
@@ -1079,8 +1083,11 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNeta
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
 
-    'COMISIONES desde BP Mensual
+    'BP Mensual
     WriteByHeader baseWS, headers, rowIndex, "COMISIONES", comPct
+    WriteByHeader baseWS, headers, rowIndex, "TASA_DE_ENTRADA", tasaEntrada
+    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_MEDIO", sinMedio
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_SINIESTRO_MEDIO", "CLP"
 
     WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS", m.GastosDirectosMonto
     WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS", m.GastosIndirectosMonto
@@ -1093,7 +1100,6 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", productTypeTxt
     WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD_(MENSUAL/UNICA)", periodicidadTxt
 
-    'LOAN_DURATION
     If IsPrimaUnicaText(periodicidadTxt) Then
         WriteByHeader baseWS, headers, rowIndex, "LOAN_DURATION", loanDuration
     Else
@@ -1101,42 +1107,35 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     End If
 
     WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", duracionMediaMeses
-    'BP Mensual
-    WriteByHeader baseWS, headers, rowIndex, "TASA_DE_ENTRADA", tasaEntrada
-    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_MEDIO", sinMedio
-    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_SINIESTRO_MEDIO", "CLP"
 
+    'Derivados
     WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD", siniestralidad
     WriteByHeader baseWS, headers, rowIndex, "SINIESTRALIDAD_SOBRE_LA_NEP", valorCliente
     WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
     WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
 
-
-    'TODOs
+    'Asistencias / costos
     WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", asistMensualCLP
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_MENSUAL", "CLP"
     WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_VENTA", asistVentaCLP
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_VENTA", "CLP"
+
     WriteByHeader baseWS, headers, rowIndex, "COSTOS_VENTA", costosVentaCLP
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", "CLP"
 
-    'COSTOS_MENSUALES (si Parametros existe; si no => TODO)
     WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", costosMensualesCLP
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", "CLP"
 
-    'MESES_GRATIS/CARENCIA
     WriteByHeader baseWS, headers, rowIndex, "MESES_GRATIS/CARENCIA", IIf(IsEmptyOrBlank(mesesCarencia), TODO_TEXT, mesesCarencia)
 
-    'OTROS_COSTOS_DIRECTOS_FIJOS: KR45/meses_expuestos
     WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_DIRECTOS_FIJOS", otrosCostosFijos
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_OTROS_COSTOS_DIRECTOS_FIJOS", "CLP"
 
-    'Reaseguro / siniestro cedido / ratio asistencia (BP Mensual)
     WriteByHeader baseWS, headers, rowIndex, "REASEGURO", reaseguroTxt
     WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_CEDIDO", siniestroCedido
     WriteByHeader baseWS, headers, rowIndex, "RATIO_DE_ASISTENCIA_SOBRE_LA_NEP", ratioAsistSobreNEP
 
-    'Campos manuales (formulario)
+    'Manual (form)
     WriteByHeader baseWS, headers, rowIndex, "CUOTAS_PROMEDIO", p.CuotasPromedio
     WriteByHeader baseWS, headers, rowIndex, "PROFIT_SHARING", p.ProfitSharing
     WriteByHeader baseWS, headers, rowIndex, "PRIMA_CEDIDA", p.PrimaCedida
@@ -1151,11 +1150,12 @@ Private Sub FillBaseRow_Plan(ByVal baseWS As Worksheet, ByVal headers As Object,
     WriteByHeader baseWS, headers, rowIndex, "ROP_(SI/NO)", p.ROP
     WriteByHeader baseWS, headers, rowIndex, "BONIFICACION_ROP_(%)", p.BonificacionROPPct
     WriteByHeader baseWS, headers, rowIndex, "VENTA_POR_PLANES_(SI/NO)", p.VentaPorPlanes
-    WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)", p.PolizaEsContinuacion
 
-    'Auxiliares del listado
+    'OJO: header oficial del listado
+    WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION", p.PolizaEsContinuacion
+
+    'Extras
     WriteByHeader baseWS, headers, rowIndex, "FECHA_FIN_TARIFA", Date
-
     WriteByHeader baseWS, headers, rowIndex, "IVA_EFECTIVO", ivaEfectivo
     WriteByHeader baseWS, headers, rowIndex, "IVA_RECUPERABLE", ivaRec
     WriteByHeader baseWS, headers, rowIndex, "GASTOS_DIRECTOS_/_NEP", gastosDirPct
@@ -1208,10 +1208,10 @@ Private Sub AppendTasaCaidaPlan(ByVal tasaWS As Worksheet, ByVal headers As Obje
 End Sub
 
 '===========================================================
-' Por_Riesgo
+' Por_Riesgo 
 '===========================================================
 Private Sub AppendPorRiesgoPlan(ByVal porWS As Worksheet, ByVal headers As Object, _
-                               ByVal planId As Long, ByVal planName As String, ByVal fechaVentaTxt As String, _
+                               ByVal planId As Long, ByVal planName As String, _
                                ByVal riesgos As Variant, ByVal cap As Variant, ByVal sinM As Variant, ByVal tasa As Variant, _
                                ByVal n As Long)
 
@@ -1220,23 +1220,20 @@ Private Sub AppendPorRiesgoPlan(ByVal porWS As Worksheet, ByVal headers As Objec
     Dim outRow As Long
     outRow = NextFreeRow(porWS, CLng(headers("ID_INTERNO")), 2)
 
-    Dim idCol As Long, fechaCol As Long, planCol As Long, riesgoCol As Long, metricaCol As Long, valorCol As Long
+    Dim idCol As Long, planCol As Long, riesgoCol As Long, metricaCol As Long, valorCol As Long
     idCol = CLng(headers("ID_INTERNO"))
-    fechaCol = CLng(headers("FECHA_DE_VENTA"))
     planCol = CLng(headers("PLAN"))
     riesgoCol = CLng(headers("RIESGO"))
     metricaCol = CLng(headers("METRICA"))
     valorCol = CLng(headers("VALOR"))
 
-    'Total filas = 3*n (C.. luego D.. luego E..)
     Dim totalRows As Long
     totalRows = 3 * n
 
-    Dim arrID() As Variant, arrFecha() As Variant, arrPlan() As Variant
+    Dim arrID() As Variant, arrPlan() As Variant
     Dim arrRiesgo() As Variant, arrMetrica() As Variant, arrValor() As Variant
 
     ReDim arrID(1 To totalRows, 1 To 1)
-    ReDim arrFecha(1 To totalRows, 1 To 1)
     ReDim arrPlan(1 To totalRows, 1 To 1)
     ReDim arrRiesgo(1 To totalRows, 1 To 1)
     ReDim arrMetrica(1 To totalRows, 1 To 1)
@@ -1245,33 +1242,30 @@ Private Sub AppendPorRiesgoPlan(ByVal porWS As Worksheet, ByVal headers As Objec
     Dim r As Long, idx As Long
     idx = 0
 
-    '1) Capital Asegurado (col C)
+    '1) Capital Asegurado
     For r = 1 To n
         idx = idx + 1
         arrID(idx, 1) = planId
-        arrFecha(idx, 1) = fechaVentaTxt
         arrPlan(idx, 1) = planName
         arrRiesgo(idx, 1) = riesgos(r)
         arrMetrica(idx, 1) = "Capital Asegurado"
         arrValor(idx, 1) = cap(r)
     Next r
 
-    '2) Siniestro Medio (col D)
+    '2) Siniestro Medio
     For r = 1 To n
         idx = idx + 1
         arrID(idx, 1) = planId
-        arrFecha(idx, 1) = fechaVentaTxt
         arrPlan(idx, 1) = planName
         arrRiesgo(idx, 1) = riesgos(r)
         arrMetrica(idx, 1) = "Siniestro Medio"
         arrValor(idx, 1) = sinM(r)
     Next r
 
-    '3) Tasa Entrada (col E)
+    '3) Tasa Entrada
     For r = 1 To n
         idx = idx + 1
         arrID(idx, 1) = planId
-        arrFecha(idx, 1) = fechaVentaTxt
         arrPlan(idx, 1) = planName
         arrRiesgo(idx, 1) = riesgos(r)
         arrMetrica(idx, 1) = "Tasa Entrada"
@@ -1279,7 +1273,6 @@ Private Sub AppendPorRiesgoPlan(ByVal porWS As Worksheet, ByVal headers As Objec
     Next r
 
     porWS.Range(porWS.Cells(outRow, idCol), porWS.Cells(outRow + totalRows - 1, idCol)).Value2 = arrID
-    porWS.Range(porWS.Cells(outRow, fechaCol), porWS.Cells(outRow + totalRows - 1, fechaCol)).Value2 = arrFecha
     porWS.Range(porWS.Cells(outRow, planCol), porWS.Cells(outRow + totalRows - 1, planCol)).Value2 = arrPlan
     porWS.Range(porWS.Cells(outRow, riesgoCol), porWS.Cells(outRow + totalRows - 1, riesgoCol)).Value2 = arrRiesgo
     porWS.Range(porWS.Cells(outRow, metricaCol), porWS.Cells(outRow + totalRows - 1, metricaCol)).Value2 = arrMetrica
@@ -1396,7 +1389,7 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
 
     Dim wb As Workbook
     Set wb = Workbooks.Open(Filename:=consPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
-
+    On Error GoTo SafeOut
     'Parameters (meses carencia)
     If WorksheetExists(wb, BP_PARAMS_SHEET) Then
         Dim wsP As Worksheet
@@ -1426,65 +1419,85 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
         comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
         reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
     End If
-
+SafeOut:
+    On Error Resume Next
     wb.Close SaveChanges:=False
 End Sub
 
-'BP PLAN: Parametros + BP Mensual + Por_Riesgo
-'BP PLAN: Parametros + BP Mensual + Por_Riesgo
+'BP PLAN: Parameters + BP Mensual + Por_Riesgo (SIN fecha venta)
 Private Sub ReadBPPlanData(ByVal files As Variant, ByVal planName As String, _
         ByRef planFullPath As String, _
         ByRef costosMensualesCLP As Variant, ByRef costosVentaCLP As Variant, _
         ByRef asistenciaMensualCLP As Variant, ByRef asistenciaVentaCLP As Variant, _
         ByRef primaPromVtaUnica As Variant, ByRef duracionMediaMeses As Variant, _
-        ByRef otrosCostosCLP, _
+        ByRef otrosCostosCLP As Variant, _
         ByRef mesesCarencia As Variant, _
         ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
         ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant, _
-        ByRef prFechaVenta As String, ByRef prRiesgos As Variant, ByRef prCap As Variant, ByRef prSin As Variant, ByRef prTasa As Variant, ByRef prN As Long)
+        ByRef prRiesgos As Variant, ByRef prCap As Variant, ByRef prSin As Variant, ByRef prTasa As Variant, ByRef prN As Long)
 
     planFullPath = FS_FindBestFileByTokenFiltered(files, planName, False)
 
     Dim planPath As String
     planPath = planFullPath
 
-    If Len(planPath) = 0 Then
+    If Len(Trim$(planPath)) = 0 Then
         planFullPath = vbNullString
-        costosMensualesCLP = TODO_TEXT: mesesCarencia = TODO_TEXT
+
+        costosMensualesCLP = TODO_TEXT: costosVentaCLP = TODO_TEXT
+        asistenciaMensualCLP = TODO_TEXT: asistenciaVentaCLP = TODO_TEXT
+        primaPromVtaUnica = TODO_TEXT: duracionMediaMeses = TODO_TEXT
+        otrosCostosCLP = TODO_TEXT
+
+        mesesCarencia = TODO_TEXT
         comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
         reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
-        prFechaVenta = vbNullString: prRiesgos = Empty: prCap = Empty: prSin = Empty: prTasa = Empty: prN = 0
+
+        prRiesgos = Empty: prCap = Empty: prSin = Empty: prTasa = Empty: prN = 0
         Exit Sub
     End If
 
     Dim wb As Workbook
     Set wb = Workbooks.Open(Filename:=planPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
 
-    'Parametros
+    On Error GoTo SafeOut
+
+    'Parametros + Por_Riesgo
     If WorksheetExists(wb, BP_PARAMS_SHEET) Then
         Dim wsP As Worksheet
         Set wsP = wb.Worksheets(BP_PARAMS_SHEET)
 
         mesesCarencia = wsP.Range(BP_PARAMS_MESES_CARENCIA).Value2
-
-        ExtractPorRiesgo wsP, prFechaVenta, prRiesgos, prCap, prSin, prTasa, prN
+        ExtractPorRiesgo wsP, prRiesgos, prCap, prSin, prTasa, prN
     Else
         mesesCarencia = TODO_TEXT
-        prFechaVenta = vbNullString: prRiesgos = Empty: prCap = Empty: prSin = Empty: prTasa = Empty: prN = 0
+        prRiesgos = Empty: prCap = Empty: prSin = Empty: prTasa = Empty: prN = 0
     End If
 
     'BP Mensual
     If WorksheetExists(wb, BP_MENSUAL_SHEET) Then
         Dim wsM As Worksheet
         Set wsM = wb.Worksheets(BP_MENSUAL_SHEET)
-        ReadBPMensualVars wsM, comPct, tasaEntrada, sinMedio, otrosCostosFijos, reaseguroTxt, siniestroCedido, ratioAsistSobreNEP, _
-            costosMensualesCLP, costosVentaCLP, asistenciaMensualCLP, asistenciaVentaCLP, _
-            primaPromVtaUnica, duracionmediaMeses, otrosCostosCLP
+
+        ReadBPMensualVars wsM, _
+            comPct, tasaEntrada, sinMedio, otrosCostosFijos, _
+            reaseguroTxt, siniestroCedido, ratioAsistSobreNEP, _
+            costosMensualesCLP, costosVentaCLP, _
+            asistenciaMensualCLP, asistenciaVentaCLP, _
+            primaPromVtaUnica, duracionMediaMeses, _
+            otrosCostosCLP
     Else
+        costosMensualesCLP = TODO_TEXT: costosVentaCLP = TODO_TEXT
+        asistenciaMensualCLP = TODO_TEXT: asistenciaVentaCLP = TODO_TEXT
+        primaPromVtaUnica = TODO_TEXT: duracionMediaMeses = TODO_TEXT
+        otrosCostosCLP = TODO_TEXT
+
         comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
         reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
     End If
 
+SafeOut:
+    On Error Resume Next
     wb.Close SaveChanges:=False
 End Sub
 
@@ -1493,99 +1506,84 @@ Private Sub ReadBPMensualVars(ByVal wsM As Worksheet, _
     ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
     ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant, _
     ByRef costosMensualesCLP As Variant, ByRef costosVentaCLP As Variant, _
-    ByRef asistenciaMensualesCLP As Variant, ByRef asistenciaVentaCLP As Variant, _
+    ByRef asistenciaMensualCLP As Variant, ByRef asistenciaVentaCLP As Variant, _
     ByRef primaPromVtaUnica As Variant, ByRef duracionMediaMeses As Variant, _
     ByRef otrosCostosCLP As Variant)
 
-    'COMISIONES = KR20/KR12
+    'COMISIONES = KR24 / KR12
     Dim vCom As Double, vPrima As Double
     vCom = CDbl(ValSafe(wsM.Range(BP_KR_COMISION_BRUTA).Value2))
     vPrima = CDbl(ValSafe(wsM.Range(BP_KR_PRIMA_BRUTA).Value2))
     If vPrima <> 0# Then comPct = vCom / vPrima Else comPct = Empty
 
-    'TASA_DE_ENTRADA = KR36/KR8
+    'TASA_DE_ENTRADA = KR40 / KR8
     Dim vTE_Num As Double, vTE_Den As Double
     vTE_Num = CDbl(ValSafe(wsM.Range(BP_KR_TASA_ENTRADA_NUM).Value2))
     vTE_Den = CDbl(ValSafe(wsM.Range(BP_KR_TASA_ENTRADA_DEN).Value2))
     If vTE_Den <> 0# Then tasaEntrada = vTE_Num / vTE_Den Else tasaEntrada = Empty
 
-    'SINIESTRO_MEDIO = KR37/KR36
+    'SINIESTRO_MEDIO = KR41 / KR40
     Dim vSM_Num As Double, vSM_Den As Double
     vSM_Num = CDbl(ValSafe(wsM.Range(BP_KR_SIN_MEDIO_NUM).Value2))
     vSM_Den = CDbl(ValSafe(wsM.Range(BP_KR_SIN_MEDIO_DEN).Value2))
     If vSM_Den <> 0# Then sinMedio = vSM_Num / vSM_Den Else sinMedio = Empty
 
-    'REASEGURO (KR50>0 => proporcional)
+    'REASEGURO (KR54 > 0 => Proporcional)
     Dim vRea As Double
     vRea = CDbl(ValSafe(wsM.Range(BP_CONS_REASEGURO_CELL).Value2))
     If vRea > 0# Then reaseguroTxt = "Proporcional" Else reaseguroTxt = "Sin Reaseguro"
 
-    'SINIESTRO_CEDIDO = KR49
+    'SINIESTRO_CEDIDO = KR53
     siniestroCedido = wsM.Range(BP_CONS_SINIESTRO_CEDIDO_CELL).Value2
 
-    'RATIO_ASISTENCIA_SOBRE_NEP = KR39/KR18
+    'RATIO_DE_ASISTENCIA_SOBRE_LA_NEP = KR43 / KR18
     Dim vAsist As Double, vNep As Double
     vAsist = CDbl(ValSafe(wsM.Range(BP_CONS_ASIST_CELL).Value2))
     vNep = CDbl(ValSafe(wsM.Range(BP_CONS_NEP_CELL).Value2))
     If vNep <> 0# Then ratioAsistSobreNEP = vAsist / vNep Else ratioAsistSobreNEP = Empty
 
-    'OTROS_COSTOS_DIRECTOS_FIJOS = KR45 / meses_expuestos
+    'OTROS_COSTOS_DIRECTOS_FIJOS = KR49 / meses_expuestos
     Dim mesesExp As Long
     mesesExp = CountMesesExpuestos_BP(wsM)
 
     Dim vOtros As Double
     vOtros = CDbl(ValSafe(wsM.Range(BP_KR_OTROS_COSTOS_FIJOS).Value2))
+    If mesesExp > 0 Then otrosCostosFijos = vOtros / mesesExp Else otrosCostosFijos = Empty
 
-    If mesesExp > 0 Then
-        otrosCostosFijos = vOtros / mesesExp
-    Else
-        otrosCostosFijos = Empty
-    End If
-  'COSTOS_VENTA = KR46
+    'COSTOS_VENTA = KR46
     Dim vCostosVenta_Num As Double
     vCostosVenta_Num = CDbl(ValSafe(wsM.Range(BP_KR_COSTOS_VENTA).Value2))
     costosVentaCLP = vCostosVenta_Num
 
     'ASISTENCIA_MENSUAL = KR88
     Dim vAsistMens_Num As Double
-    vAsistMens_Num = CDbl(ValSafe(wsM.Range(BP_KR_ASIST_MENSUAL).Value2))
+    vAsistMens_Num = CDbl(ValSafe(wsM.Range(BP_KR_COSTOS_ASIST_MENSUAL_CLP).Value2))
     asistenciaMensualCLP = vAsistMens_Num
 
     'ASISTENCIA_VENTA = KR89
     Dim vAsistVenta_Num As Double
-    vAsistVenta_Num = CDbl(ValSafe(wsM.Range(BP_KR_ASIST_VENTA).Value2))
+    vAsistVenta_Num = CDbl(ValSafe(wsM.Range(BP_KR_COSTOS_ASIST_VENTA_CLP).Value2))
     asistenciaVentaCLP = vAsistVenta_Num
 
     'COSTOS_MENSUALES = KR50 - KR46 - KR89
-    Dim vCostosMens_Num As Double, vCostosMens_Sub1 As Double, vCostosMens_Sub2 As Double
-    vCostosMens_Num = CDbl(ValSafe(wsM.Range(BP_KR_TOTAL_GD).Value2)) 'KR50
-    vCostosMens_Sub1 = vCostosVenta_Num 'KR46
-    vCostosMens_Sub2 = vAsistVenta_Num 'KR89
-    costosMensualesCLP = vCostosMens_Num - vCostosMens_Sub1 - vCostosMens_Sub2
+    Dim vTotalGD As Double
+    vTotalGD = CDbl(ValSafe(wsM.Range(BP_KR_TOTAL_GD).Value2))
+    costosMensualesCLP = vTotalGD - vCostosVenta_Num - vAsistVenta_Num
 
     'PRIMA_PROMEDIO_DE_VENTA_UNICA = KR12 / KR7
     Dim vPrimaProm_Num As Double, vPrimaProm_Den As Double
-    vPrimaProm_Num = CDbl(ValSafe(wsM.Range(BP_KR_PRIMA_BRUTA).Value2)) 'KR12 (GWP)
-    vPrimaProm_Den = CDbl(ValSafe(wsM.Range(BP_KR_EXPUESTOS_TOTALES).Value2)) 'KR7 (expuestos totales)
-    If vPrimaProm_Den <> 0# Then
-        primaPromVtaUnica = vPrimaProm_Num / vPrimaProm_Den
-    Else
-        primaPromVtaUnica = Empty
-    End If
+    vPrimaProm_Num = CDbl(ValSafe(wsM.Range(BP_KR_PRIMA_BRUTA).Value2))          'KR12
+    vPrimaProm_Den = CDbl(ValSafe(wsM.Range(BP_KR_EXPUESTOS_TOTALES).Value2))   'KR7
+    If vPrimaProm_Den <> 0# Then primaPromVtaUnica = vPrimaProm_Num / vPrimaProm_Den Else primaPromVtaUnica = Empty
 
-    'DURACION_MEDIA_MESES = KR8 / KR6 (para todos los casos)
+    'DURACION_MEDIA_MESES = KR8 / KR6
     Dim vDur_Num As Double, vDur_Den As Double
-    vDur_Num = CDbl(ValSafe(wsM.Range(BP_KR_EXP_NO_CARENCIA).Value2)) 'KR8
-    vDur_Den = CDbl(ValSafe(wsM.Range(BP_KR_VENTAS).Value2)) 'KR6
-    If vDur_Den <> 0# Then
-        duracionmediaMeses = vDur_Num / vDur_Den
-    Else
-        duracionmediaMeses = Empty
-    End If
+    vDur_Num = CDbl(ValSafe(wsM.Range(BP_KR_EXPUESTOS_NO_CARENCIA).Value2)) 'KR8
+    vDur_Den = CDbl(ValSafe(wsM.Range(BP_KR_VENTAS).Value2))                'KR6
+    If vDur_Den <> 0# Then duracionMediaMeses = vDur_Num / vDur_Den Else duracionMediaMeses = Empty
 
     'OTROS_COSTOS = KR49
     otrosCostosCLP = wsM.Range(BP_KR_OTROS_COSTOS).Value2
-
 End Sub
 
 Private Function CountMesesExpuestos_BP(ByVal wsM As Worksheet) As Long
@@ -1604,11 +1602,9 @@ Private Function CountMesesExpuestos_BP(ByVal wsM As Worksheet) As Long
     CountMesesExpuestos_BP = cnt
 End Function
 
-' Por_Riesgo desde Parametros
+' Por_Riesgo desde Parameters 
 Private Sub ExtractPorRiesgo(ByVal wsP As Worksheet, _
-    ByRef fechaVentaTxt As String, ByRef riesgos As Variant, ByRef cap As Variant, ByRef sinM As Variant, ByRef tasa As Variant, ByRef n As Long)
-
-    fechaVentaTxt = FormatDate_DDMMYYYY(wsP.Range(PR_FECHA_VENTA_CELL).Value2)
+    ByRef riesgos As Variant, ByRef cap As Variant, ByRef sinM As Variant, ByRef tasa As Variant, ByRef n As Long)
 
     Dim lastRow As Long
     lastRow = MaxLastRowAny(wsP, PR_TABLE_START_ROW, Array(PR_COL_RIESGO, PR_COL_CAPITAL, PR_COL_SIN_MEDIO, PR_COL_TASA_ENTR))
@@ -1627,9 +1623,9 @@ Private Sub ExtractPorRiesgo(ByVal wsP As Worksheet, _
 
     Dim r As Long, idx As Long
     idx = 0
+
     For r = PR_TABLE_START_ROW To lastRow
         idx = idx + 1
-
         riesgos(idx) = Trim$(CStr(wsP.Cells(r, PR_COL_RIESGO).Value2))
         cap(idx) = CDbl(ValSafe(wsP.Cells(r, PR_COL_CAPITAL).Value2))
         sinM(idx) = CDbl(ValSafe(wsP.Cells(r, PR_COL_SIN_MEDIO).Value2))

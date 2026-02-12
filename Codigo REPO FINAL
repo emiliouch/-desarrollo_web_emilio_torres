@@ -33,7 +33,15 @@ Option Explicit
 'Ejecutamos el forms con esta Sub
 Public Sub ExportarRepositorio_UI()
     Dim p As tExportParams
-    Dim closeRepoAfter As Boolean
+    Dim CloseRepoAfter As Boolean
+
+    With frmExportRepo
+        .StartUpPosition = 0
+        .Width = 350
+        .Height = 520
+        .Left = Application.Left + (Application.Width - .Width) / 2
+        .Top = Application.Top + (Application.Height - .Height) / 2
+    End With
 
     'Abrir form (modal)
     frmExportRepo.Show vbModal
@@ -44,11 +52,11 @@ Public Sub ExportarRepositorio_UI()
     End If
 
     p = gExportParams
-    closeRepoAfter = frmExportRepo.CloseRepoAfter 
+    CloseRepoAfter = frmExportRepo.CloseRepoAfter
 
     Unload frmExportRepo
 
-    ExportarRepositorio p, closeRepoAfter
+    ExportarRepositorio p, CloseRepoAfter
 End Sub
 '-----------------------
 ' Parámetros de ejecución

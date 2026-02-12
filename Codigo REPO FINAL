@@ -815,10 +815,13 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
                                    ByVal gastosDirPct As Variant, ByVal gastosIndPct As Variant, _
                                    ByVal siniestralidad As Variant, ByVal valorCliente As Variant, ByVal devolPct As Variant, _
                                    ByVal ivaEfectivo As Variant, ByVal ivaRec As Variant, _
-                                   ByVal costosMensualesCLP As Variant, ByVal mesesCarencia As Variant, _
+                                   ByVal mesesCarencia As Variant, _
                                    ByVal tasaEntrada As Variant, ByVal sinMedio As Variant, ByVal otrosCostosFijos As Variant, _
                                    ByVal reaseguroTxt As Variant, ByVal siniestroCedido As Variant, ByVal ratioAsistSobreNEP As Variant, _
-                                   ByVal rutaRelBPCons As String)
+                                   ByVal rutaRelBPCons As String, ByVal costosMensualesCLP As Variant, ByVal costosVentaCLP As Variant, _
+                                   ByVal asistMensualCLP As Variant, ByVal asistVentaCLP As Variant, _
+                                   ByVal primaPromVtaUnica As Variant, ByVal duracionMediaMeses As Variant, _
+                                   ByVal otrosCostosCLP As Variant)
 
     'Identidad
     WriteByHeader baseWS, headers, rowIndex, "ID_INTERNO", idValue
@@ -827,11 +830,10 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "SOCIO", socioAuto
     WriteByHeader baseWS, headers, rowIndex, "PLAN", planLabel
 
-
     If headers.Exists("RUTA") Then WriteByHeader baseWS, headers, rowIndex, "RUTA", rutaRelBPCons
 
     'Condor Output
-    WriteByHeader baseWS, headers, rowIndex, "VENTAS", m.Ventas
+    WriteByHeader baseWS, headers, rowIndex, "VENTAS", m.ventas
     WriteByHeader baseWS, headers, rowIndex, "PRIMA_CLIENTE_NETA", primaClienteNeta
     WriteByHeader baseWS, headers, rowIndex, "UNIDAD_PRIMA_CLIENTE_NETA", "CLP"
 
@@ -845,7 +847,7 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     'Consolidado: LOAN_DURATION no aplica
     WriteByHeader baseWS, headers, rowIndex, "LOAN_DURATION", "N/A"
 
-    WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", CalcDuracionMedia(m.Expuestos, m.Ventas)
+    WriteByHeader baseWS, headers, rowIndex, "DURACION_MEDIA_MESES", duracionmediaMeses
 
     'TASA_DE_ENTRADA y SINIESTRO_MEDIO (BP Mensual)
     WriteByHeader baseWS, headers, rowIndex, "TASA_DE_ENTRADA", tasaEntrada
@@ -857,17 +859,17 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "DEVOLUCIONES", devolPct
     WriteByHeader baseWS, headers, rowIndex, "VALOR_CLIENTE", valorCliente
 
-    'TODOs
-    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_MENSUAL", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_VENTA", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_VENTA", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "COSTOS_VENTA", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", TODO_TEXT
+    'TODOS
+    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_MENSUAL", asistMensualCLP
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_MENSUAL", "CLP"
+    WriteByHeader baseWS, headers, rowIndex, "ASISTENCIA_VENTA", asistVentaCLP
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_ASISTENCIA_VENTA", "CLP"
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_VENTA", costosVentaCLP
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_VENTA", "CLP"
 
-    'Costos mensuales (si existe Parametros; si no => TODO)
-    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", TODO_TEXT
+    'Costos mensuales
+    WriteByHeader baseWS, headers, rowIndex, "COSTOS_MENSUALES", costosMensualesCLP
+    WriteByHeader baseWS, headers, rowIndex, "UNIDAD_COSTOS_MENSUALES", "CLP"
 
     'OTROS_COSTOS_DIRECTOS_FIJOS: KR45 / meses expuestos
     WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_DIRECTOS_FIJOS", otrosCostosFijos
@@ -880,7 +882,7 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "PRODUCT_TYPE", vbNullString
     WriteByHeader baseWS, headers, rowIndex, "PERIODICIDAD_(MENSUAL/UNICA)", vbNullString
 
-    'Carencia (si existe Parametros; si no => TODO)
+    'Carencia
     WriteByHeader baseWS, headers, rowIndex, "MESES_GRATIS/CARENCIA", IIf(IsEmptyOrBlank(mesesCarencia), TODO_TEXT, mesesCarencia)
 
     'Manual / Formulario
@@ -898,7 +900,7 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "ROP_(SI/NO)", p.ROP
     WriteByHeader baseWS, headers, rowIndex, "BONIFICACION_ROP_(%)", p.BonificacionROPPct
     WriteByHeader baseWS, headers, rowIndex, "VENTA_POR_PLANES_(SI/NO)", p.VentaPorPlanes
-    WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION_(SI/NO_ESPECIFICAR_NUMERO_DE_POLIZA)", p.PolizaEsContinuacion
+    WriteByHeader baseWS, headers, rowIndex, "POLIZA_ES_CONTINUACION", p.PolizaEsContinuacion
 
     'BP Mensual consolidado
     WriteByHeader baseWS, headers, rowIndex, "REASEGURO", reaseguroTxt
@@ -914,12 +916,9 @@ Private Sub FillBaseRow_Consolidado(ByVal baseWS As Worksheet, ByVal headers As 
     WriteByHeader baseWS, headers, rowIndex, "GASTOS_INDIRECTOS_/_NEP", gastosIndPct
 
     'Campos sin fuente definida
-    WriteByHeader baseWS, headers, rowIndex, "PRIMA_PROMEDIO_DE_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS_EJEMPLO_COSTO_POR_VENTA_UNICA_(SI_ES_DISTINTA_POR_PLAN_ESPECIFICAR)", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "RIESGOS_COBERTURA_(ESPECIFICAR_QUE_RIESGO_CUBRE)", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "CAPITAL_ASEGURADO_(UF_O_COMENTARIO_EJ_SALDO_INSOLUTO)_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "SINIESTRO_MEDIO_(UF_O_CLP)_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
-    WriteByHeader baseWS, headers, rowIndex, "TASA_ENTRADA_(ESPECIFICAR_POR_CADA_RIESGO)", TODO_TEXT
+    WriteByHeader baseWS, headers, rowIndex, "PRIMA_PROMEDIO_DE_VENTA_UNICA", primaPromVtaUnica
+    WriteByHeader baseWS, headers, rowIndex, "OTROS_COSTOS", otrosCostosCLP
+
 End Sub
 
 '===========================================================

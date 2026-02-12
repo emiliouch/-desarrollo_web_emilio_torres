@@ -1372,7 +1372,11 @@ End Function
 
 ' BP CONSOLIDADO BP Mensual
 Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
-    ByRef costosMensualesCLP As Variant, ByRef mesesCarencia As Variant, _
+    ByRef costosMensualesCLP As Variant, ByRef costosVentaCLP As Variant, _
+    ByRef asistenciaMensualCLP As Variant, ByRef asistenciaVentaCLP As Variant, _
+    ByRef primaPromVtaUnica As Variant, ByRef duracionMediaMeses As Variant, _
+    ByRef otrosCostosCLP As Variant, _
+    ByRef mesesCarencia As Variant, _
     ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
     ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant)
 
@@ -1380,7 +1384,11 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
     consPath = FS_FindBestFileByTokenFiltered(files, "consolidado", True)
 
     If Len(consPath) = 0 Then
-        costosMensualesCLP = TODO_TEXT: mesesCarencia = TODO_TEXT
+        costosMensualesCLP = TODO_TEXT: costosVentaCLP = TODO_TEXT
+        asistenciaMensualCLP = TODO_TEXT: asistenciaVentaCLP = TODO_TEXT
+        primaPromVtaUnica = TODO_TEXT: duracionMediaMeses = TODO_TEXT
+        otrosCostosCLP = TODO_TEXT
+        mesesCarencia = TODO_TEXT
         comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
         reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
         Exit Sub
@@ -1389,7 +1397,7 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
     Dim wb As Workbook
     Set wb = Workbooks.Open(Filename:=consPath, UpdateLinks:=0, ReadOnly:=True, AddToMru:=False)
 
-    'Parametros opcional
+    'Parameters (meses carencia)
     If WorksheetExists(wb, BP_PARAMS_SHEET) Then
         Dim wsP As Worksheet
         Set wsP = wb.Worksheets(BP_PARAMS_SHEET)
@@ -1398,14 +1406,23 @@ Private Sub ReadBPConsolidadoData(ByVal files As Variant, _
         mesesCarencia = TODO_TEXT
     End If
 
-    costosMensualesCLP = TODO_TEXT
-
     'BP Mensual
     If WorksheetExists(wb, BP_MENSUAL_SHEET) Then
         Dim wsM As Worksheet
         Set wsM = wb.Worksheets(BP_MENSUAL_SHEET)
-        ReadBPMensualVars wsM, comPct, tasaEntrada, sinMedio, otrosCostosFijos, reaseguroTxt, siniestroCedido, ratioAsistSobreNEP
+
+        ReadBPMensualVars wsM, _
+            comPct, tasaEntrada, sinMedio, otrosCostosFijos, _
+            reaseguroTxt, siniestroCedido, ratioAsistSobreNEP, _
+            costosMensualesCLP, costosVentaCLP, _
+            asistenciaMensualCLP, asistenciaVentaCLP, _
+            primaPromVtaUnica, duracionMediaMeses, _
+            otrosCostosCLP
     Else
+        costosMensualesCLP = TODO_TEXT: costosVentaCLP = TODO_TEXT
+        asistenciaMensualCLP = TODO_TEXT: asistenciaVentaCLP = TODO_TEXT
+        primaPromVtaUnica = TODO_TEXT: duracionMediaMeses = TODO_TEXT
+        otrosCostosCLP = TODO_TEXT
         comPct = TODO_TEXT: tasaEntrada = TODO_TEXT: sinMedio = TODO_TEXT: otrosCostosFijos = TODO_TEXT
         reaseguroTxt = TODO_TEXT: siniestroCedido = TODO_TEXT: ratioAsistSobreNEP = TODO_TEXT
     End If

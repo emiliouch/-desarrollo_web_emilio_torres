@@ -246,7 +246,7 @@ End Function
 ' LISTADO OFICIAL: headers requeridos en la hoja Por_Riesgo
 '===========================================================
 Private Function RequiredHeaders_PorRiesgo() As Variant
-    RequiredHeaders_PorRiesgo = Array("ID_INTERNO", "FECHA_DE_VENTA", "PLAN", "RIESGO", "METRICA", "VALOR")
+    RequiredHeaders_PorRiesgo = Array("ID_INTERNO", "PLAN", "RIESGO", "METRICA", "VALOR")
 End Function
 
 '===========================================================

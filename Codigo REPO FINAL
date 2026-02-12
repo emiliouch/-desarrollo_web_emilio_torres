@@ -1029,12 +1029,12 @@ Private Sub AppendPlanesAndRates(ByVal baseWS As Worksheet, ByVal headers As Obj
 
         'Escritura fila Base
         FillBaseRow_Plan baseWS, headers, rowIndex, idValue, p, socioAuto, planName, _
-                         m, mesesVenta, inflacionTxt, cutOffRunOffTxt, fechaCutOff, periodicidadTxt, productTypeTxt, loanDuration, _
-                         primaClienteNeta, bpComPct, gastosDirPct, gastosIndPct, siniestralidad, valorCliente, devolPct, ivaEfectivo, ivaRec, _
-                         costosMensualesCLP, mesesCarencia, _
-                         bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
-                         bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
-                         rutaRelBPPlan
+            m, mesesVenta, inflacionTxt, cutOffRunOffTxt, fechaCutOff, periodicidadTxt, productTypeTxt, loanDuration, _
+            primaClienteNeta, bpComPct, gastosDirPct, gastosIndPct, siniestralidad, valorCliente, devolPct, ivaEfectivo, ivaRec, _
+            mesesCarencia, _
+            bpTasaEntrada, bpSinMedio, bpOtrosCostosFijos, _
+            bpReaseguroTxt, bpSiniestroCedido, bpRatioAsist, _
+            rutaRelBPPlan, costosMensualesCLP, costosVentaCLP, asistMensualCLP, asistVentaCLP, primaPromVtaUnica, duracionmediaMeses, ot
 
         'Tasa_Caida (bloque)
         AppendTasaCaidaPlan tasaWS, tasaHeaders, idValue, planName, d

@@ -1474,7 +1474,11 @@ End Sub
 'Lee variables desde BP Mensual
 Private Sub ReadBPMensualVars(ByVal wsM As Worksheet, _
     ByRef comPct As Variant, ByRef tasaEntrada As Variant, ByRef sinMedio As Variant, ByRef otrosCostosFijos As Variant, _
-    ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant)
+    ByRef reaseguroTxt As Variant, ByRef siniestroCedido As Variant, ByRef ratioAsistSobreNEP As Variant, _
+    ByRef costosMensualesCLP As Variant, ByRef costosVentaCLP As Variant, _
+    ByRef asistenciaMensualesCLP As Variant, ByRef asistenciaVentaCLP As Variant, _
+    ByRef primaPromVtaUnica As Variant, ByRef duracionMediaMeses As Variant, _
+    ByRef otrosCostosCLP As Variant)
 
     'COMISIONES = KR20/KR12
     Dim vCom As Double, vPrima As Double
@@ -1520,6 +1524,51 @@ Private Sub ReadBPMensualVars(ByVal wsM As Worksheet, _
     Else
         otrosCostosFijos = Empty
     End If
+  'COSTOS_VENTA = KR46
+    Dim vCostosVenta_Num As Double
+    vCostosVenta_Num = CDbl(ValSafe(wsM.Range(BP_KR_COSTOS_VENTA).Value2))
+    costosVentaCLP = vCostosVenta_Num
+
+    'ASISTENCIA_MENSUAL = KR88
+    Dim vAsistMens_Num As Double
+    vAsistMens_Num = CDbl(ValSafe(wsM.Range(BP_KR_ASIST_MENSUAL).Value2))
+    asistenciaMensualCLP = vAsistMens_Num
+
+    'ASISTENCIA_VENTA = KR89
+    Dim vAsistVenta_Num As Double
+    vAsistVenta_Num = CDbl(ValSafe(wsM.Range(BP_KR_ASIST_VENTA).Value2))
+    asistenciaVentaCLP = vAsistVenta_Num
+
+    'COSTOS_MENSUALES = KR50 - KR46 - KR89
+    Dim vCostosMens_Num As Double, vCostosMens_Sub1 As Double, vCostosMens_Sub2 As Double
+    vCostosMens_Num = CDbl(ValSafe(wsM.Range(BP_KR_TOTAL_GD).Value2)) 'KR50
+    vCostosMens_Sub1 = vCostosVenta_Num 'KR46
+    vCostosMens_Sub2 = vAsistVenta_Num 'KR89
+    costosMensualesCLP = vCostosMens_Num - vCostosMens_Sub1 - vCostosMens_Sub2
+
+    'PRIMA_PROMEDIO_DE_VENTA_UNICA = KR12 / KR7
+    Dim vPrimaProm_Num As Double, vPrimaProm_Den As Double
+    vPrimaProm_Num = CDbl(ValSafe(wsM.Range(BP_KR_PRIMA_BRUTA).Value2)) 'KR12 (GWP)
+    vPrimaProm_Den = CDbl(ValSafe(wsM.Range(BP_KR_EXPUESTOS_TOTALES).Value2)) 'KR7 (expuestos totales)
+    If vPrimaProm_Den <> 0# Then
+        primaPromVtaUnica = vPrimaProm_Num / vPrimaProm_Den
+    Else
+        primaPromVtaUnica = Empty
+    End If
+
+    'DURACION_MEDIA_MESES = KR8 / KR6 (para todos los casos)
+    Dim vDur_Num As Double, vDur_Den As Double
+    vDur_Num = CDbl(ValSafe(wsM.Range(BP_KR_EXP_NO_CARENCIA).Value2)) 'KR8
+    vDur_Den = CDbl(ValSafe(wsM.Range(BP_KR_VENTAS).Value2)) 'KR6
+    If vDur_Den <> 0# Then
+        duracionmediaMeses = vDur_Num / vDur_Den
+    Else
+        duracionmediaMeses = Empty
+    End If
+
+    'OTROS_COSTOS = KR49
+    otrosCostosCLP = wsM.Range(BP_KR_OTROS_COSTOS).Value2
+
 End Sub
 
 Private Function CountMesesExpuestos_BP(ByVal wsM As Worksheet) As Long

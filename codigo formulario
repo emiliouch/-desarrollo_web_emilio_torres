@@ -160,48 +160,57 @@ Private Sub SyncConditionalFields()
 End Sub
 
 Private Sub ApplyToggleCaption(ByVal ctlName As String)
-    If Not ControlExists(ctlName) Then Exit Sub
-    With Me.Controls(ctlName)
-        If CBool(.Value) Then
-            .Caption = "X"
-        Else
-            .Caption = vbNullString
-        End If
-        On Error Resume Next
-        .TakeFocusOnClick = False
-        On Error GoTo 0
-    End With
+    Dim ctl As Object
+    Set ctl = GetCtl(ctlName)
+    If ctl Is Nothing Then Exit Sub
+
+    If CBool(ctl.Value) Then
+        ctl.Caption = "X"
+    Else
+        ctl.Caption = vbNullString
+    End If
 End Sub
 
 Private Function ToggleToSiNo(ByVal ctlName As String) As String
-    If Not ControlExists(ctlName) Then
+    Dim ctl As Object
+    Set ctl = GetCtl(ctlName)
+    If ctl Is Nothing Then
         ToggleToSiNo = "NO"
         Exit Function
     End If
-    ToggleToSiNo = IIf(CBool(Me.Controls(ctlName).Value), "SI", "NO")
+    ToggleToSiNo = IIf(CBool(ctl.Value), "SI", "NO")
 End Function
 
 Private Sub SetVisibleEnabled(ByVal ctlName As String, ByVal onOff As Boolean)
-    If Not ControlExists(ctlName) Then Exit Sub
-    With Me.Controls(ctlName)
-        .Visible = onOff
-        .Enabled = onOff
-    End With
+    Dim ctl As Object
+    Set ctl = GetCtl(ctlName)
+    If ctl Is Nothing Then Exit Sub
+    ctl.Visible = onOff
+    ctl.Enabled = onOff
 End Sub
 
 Private Sub ClearIfExists(ByVal ctlName As String)
-    If Not ControlExists(ctlName) Then Exit Sub
+    Dim ctl As Object
+    Set ctl = GetCtl(ctlName)
+    If ctl Is Nothing Then Exit Sub
     On Error Resume Next
-    Me.Controls(ctlName).Text = vbNullString
+    ctl.Text = vbNullString
     On Error GoTo 0
 End Sub
 
+Private Function GetCtl(ByVal ctlName As String) As Object
+    Dim c As Object
+    For Each c In Me.Controls
+        If StrComp(c.Name, ctlName, vbTextCompare) = 0 Then
+            Set GetCtl = c
+            Exit Function
+        End If
+    Next c
+    Set GetCtl = Nothing
+End Function
+
 Private Function ControlExists(ByVal ctlName As String) As Boolean
-    On Error Resume Next
-    Dim o As Object
-    Set o = Me.Controls(ctlName)
-    ControlExists = Not o Is Nothing
-    On Error GoTo 0
+    ControlExists = Not (GetCtl(ctlName) Is Nothing)
 End Function
 
 Private Function ParseNum(ByVal s As String) As Variant

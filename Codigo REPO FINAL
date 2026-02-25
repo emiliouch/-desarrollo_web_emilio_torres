@@ -653,7 +653,9 @@ Private Sub BuildPlanInputs(ByVal inWB As Workbook, ByVal inputSheets As Collect
             Err.Raise vbObjectError + 7301, "BuildPlanInputs", "C4 vacío (nombre plan) en hoja INPUT: " & inputSheetName
         End If
 
-        planOrder.Add planName
+        If Not planInputs.Exists(planName) Then
+            planOrder.Add planName
+        End If
 
         Dim d As Object
         Set d = CreateObject("Scripting.Dictionary")
@@ -703,7 +705,12 @@ Private Sub BuildPlanInputs(ByVal inWB As Workbook, ByVal inputSheets As Collect
         d("tasa") = tasa
         d("tasa_n") = n
 
-        planInputs(planName) = d
+        'Guardar el diccionario del plan
+        If planInputs.Exists(planName) Then
+            Set planInputs.Item(planName) = d
+        Else
+            planInputs.Add planName, d
+        End If
     Next s
 End Sub
 

@@ -588,12 +588,24 @@ Public Sub ExportarRepositorio(ByRef p As tExportParams, ByVal closeRepoAfter As
     'Resolver BP consolidado (para leer y para escribir RUTA relativa)
     bpConsFullPath = FS_FindBestFileByTokenFiltered(bpFiles, "consolidado", True)
     rutaRelBPCons = MakeRelativeToFolder(baseFolder, bpConsFullPath)
+    '=========================================
+    ' Regla: si hay SOLO 1 plan y NO existe BP consolidado,
+    ' NO insertamos fila Consolidado. Solo insertamos la del plan.
+    '=========================================
+    Dim skipConsolidado As Boolean
+    skipConsolidado = False
 
+    If hasPlans Then
+        If planOrder.Count = 1 And Len(Trim$(bpConsFullPath)) = 0 Then
+            skipConsolidado = True
+        End If
+    End If
     '=========
     ' 1) CONSOLIDADO
     '=========
-    Call AppendConsolidado(baseWS, headers, nextRow, nextId, p, socioAuto, consolidadoPlanLabel, outWB, bpFiles, rutaRelBPCons)
-
+    If Not skipConsolidado Then
+        Call AppendConsolidado(baseWS, headers, nextRow, nextId, p, socioAuto, consolidadoPlanLabel, outWB, bpFiles, rutaRelBPCons)
+    End If
     '=========
     ' 2) PLANES + Tasa_Caida + Por_Riesgo (solo si hay planes)
     '=========

@@ -1,0 +1,38 @@
+Private Sub AppendTasaCaidaPlan(ByVal tasaWS As Worksheet, ByVal headers As Object, _
+                               ByVal planId As Long, ByVal planName As String, ByVal planDict As Object)
+
+    Dim tasa As Variant
+    tasa = planDict("tasa")   '<<< mantener como Variant (array)
+
+    Dim n As Long
+    n = CLng(planDict("tasa_n"))
+    If n <= 0 Then Exit Sub
+
+    Dim outRow As Long
+    outRow = NextFreeRow(tasaWS, CLng(headers("ID_INTERNO")), 2)
+
+    Dim idCol As Long, perCol As Long, planCol As Long, tasaCol As Long
+    idCol = CLng(headers("ID_INTERNO"))
+    perCol = CLng(headers("PERIODO"))
+    planCol = CLng(headers("PLAN"))
+    tasaCol = CLng(headers("TASA"))
+
+    Dim arrID() As Variant, arrPer() As Variant, arrPlan() As Variant, arrTasa() As Variant
+    ReDim arrID(1 To n, 1 To 1)
+    ReDim arrPer(1 To n, 1 To 1)
+    ReDim arrPlan(1 To n, 1 To 1)
+    ReDim arrTasa(1 To n, 1 To 1)
+
+    Dim i As Long
+    For i = 1 To n
+        arrID(i, 1) = planId
+        arrPer(i, 1) = i
+        arrPlan(i, 1) = planName
+        arrTasa(i, 1) = CDbl(ValSafe(tasa(i)))
+    Next i
+
+    tasaWS.Range(tasaWS.Cells(outRow, idCol), tasaWS.Cells(outRow + n - 1, idCol)).Value2 = arrID
+    tasaWS.Range(tasaWS.Cells(outRow, perCol), tasaWS.Cells(outRow + n - 1, perCol)).Value2 = arrPer
+    tasaWS.Range(tasaWS.Cells(outRow, planCol), tasaWS.Cells(outRow + n - 1, planCol)).Value2 = arrPlan
+    tasaWS.Range(tasaWS.Cells(outRow, tasaCol), tasaWS.Cells(outRow + n - 1, tasaCol)).Value2 = arrTasa
+End Sub

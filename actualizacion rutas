@@ -1,0 +1,80 @@
+Private Const BP_META_SHEET As String = "__repo_meta"
+Private Const BP_META_ADDR  As String = "A1"
+
+'===========================================================
+' Crea/asegura hoja oculta __repo_meta y deja en A1 una FORMULA REAL
+' que devuelve SOLO la carpeta del BP (local o URL si aplica).
+'
+' OJO: para que esto quede "permanente", el BP NO puede estar ReadOnly.
+'===========================================================
+Private Function EnsureRepoMetaSheet(ByVal wb As Workbook) As Boolean
+    On Error GoTo EH
+
+    If wb Is Nothing Then
+        EnsureRepoMetaSheet = False
+        Exit Function
+    End If
+
+    If wb.ReadOnly Then
+        'No se puede escribir ni guardar; la hoja/fórmula no quedaría persistida
+        EnsureRepoMetaSheet = False
+        Exit Function
+    End If
+
+    Dim ws As Worksheet
+    If WorksheetExists(wb, BP_META_SHEET) Then
+        Set ws = wb.Worksheets(BP_META_SHEET)
+    Else
+        Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+        ws.Name = BP_META_SHEET
+    End If
+
+    ws.Visible = xlSheetVeryHidden
+
+    With ws.Range(BP_META_ADDR)
+        'CLAVE: no dejar formato texto, porque ahí terminas guardando la fórmula como string
+        .NumberFormat = "General"
+        .ClearContents
+
+        'CLAVE: usa referencia para que no dependa de "active cell" y sea más estable
+        'Devuelve: C:\...\carpeta\   o   https://.../carpeta/
+        .Formula = "=LEFT(CELL(""filename"",A1),FIND(""["",CELL(""filename"",A1))-1)"
+    End With
+
+    ws.Calculate
+    wb.Save  'para que quede dentro del BP y sobreviva cierres / movimientos
+    EnsureRepoMetaSheet = True
+    Exit Function
+
+EH:
+    EnsureRepoMetaSheet = False
+End Function
+
+'===========================================================
+' Devuelve fórmula para escribir en REPO!RUTA:
+' - El VALOR mostrado será solo carpeta (porque viene de __repo_meta!A1)
+' - La fórmula SIEMPRE necesita referenciar el archivo para poder traer el dato.
+' - Si mueves el BP, Excel te pedirá "Actualizar vínculos" y quedará apuntando al nuevo lugar.
+'
+' asHyperlink=True -> queda clickeable (abre carpeta/URL)
+'===========================================================
+Private Function BuildRutaFolderLinkFormula(ByVal bpFullPath As String, Optional ByVal asHyperlink As Boolean = True) As String
+    Dim folder As String, file As String
+    Dim extRef As String, extRefEq As String
+
+    folder = GetFolderFromFullName(bpFullPath)          'incluye "\" al final
+    file = GetFileFromFullName(bpFullPath)
+
+    folder = Replace(folder, "'", "''")                 'escape por si hay apóstrofes
+
+    'Referencia externa a la celda que devuelve solo la carpeta
+    extRef = "'" & folder & "[" & file & "]" & BP_META_SHEET & "'!$" & BP_META_ADDR
+    extRefEq = "=" & extRef
+
+    If asHyperlink Then
+        'HYPERLINK( <celda_que_devuelve_texto>, <texto_a_mostrar> )
+        BuildRutaFolderLinkFormula = "=HYPERLINK(" & extRef & "," & extRef & ")"
+    Else
+        BuildRutaFolderLinkFormula = extRefEq
+    End If
+End Function

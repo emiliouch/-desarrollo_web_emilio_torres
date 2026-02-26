@@ -1,0 +1,41 @@
+Private Const BP_META_SHEET As String = "__repo_meta"
+Private Const BP_META_ADDR As String = "A1"
+
+Private Function EnsureRepoMetaSheet(ByVal wb As Workbook) As Boolean
+    On Error GoTo EH
+
+    If wb.ReadOnly Then
+        EnsureRepoMetaSheet = False
+        Exit Function
+    End If
+
+    Dim ws As Worksheet
+    If WorksheetExists(wb, BP_META_SHEET) Then
+        Set ws = wb.Worksheets(BP_META_SHEET)
+    Else
+        Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+        ws.Name = BP_META_SHEET
+        ws.Visible = xlSheetVeryHidden
+    End If
+
+    ws.Range(BP_META_ADDR).Formula = "=LEFT(CELL(""filename""),FIND(""["",CELL(""filename""))-1)"
+    ws.Range(BP_META_ADDR).NumberFormat = "@"
+
+    wb.Save  'necesario para que quede permanente en el BP
+    EnsureRepoMetaSheet = True
+    Exit Function
+
+EH:
+    EnsureRepoMetaSheet = False
+End Function
+
+Private Function BuildRutaFolderLinkFormula(ByVal bpFullPath As String) As String
+    Dim folder As String, file As String
+    folder = GetFolderFromFullName(bpFullPath)          'incluye "\" al final
+    file = GetFileFromFullName(bpFullPath)
+
+    folder = Replace(folder, "'", "''")                 'escape por si hay apóstrofes
+
+    'Link externo a __repo_meta!A1 (esa celda devuelve SOLO la carpeta)
+    BuildRutaFolderLinkFormula = "='" & folder & "[" & file & "]" & BP_META_SHEET & "'!$" & BP_META_ADDR
+End Function

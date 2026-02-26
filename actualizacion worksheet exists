@@ -1,0 +1,17 @@
+Private Function WorksheetExists(ByVal wb As Workbook, ByVal sheetName As String) As Boolean
+    Dim sh As Worksheet
+    Dim target As String
+
+    WorksheetExists = False
+    If wb Is Nothing Then Exit Function
+
+    target = Trim$(CStr(sheetName))
+    If Len(target) = 0 Then Exit Function
+
+    For Each sh In wb.Worksheets
+        If StrComp(sh.Name, target, vbTextCompare) = 0 Then
+            WorksheetExists = True
+            Exit Function
+        End If
+    Next sh
+End Function

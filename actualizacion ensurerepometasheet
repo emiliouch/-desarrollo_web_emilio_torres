@@ -1,0 +1,43 @@
+Private Const BP_META_SHEET As String = "__repo_meta"
+Private Const BP_META_ADDR As String = "A1"
+
+Private Function EnsureRepoMetaSheet(ByVal wb As Workbook) As Boolean
+    On Error GoTo EH
+
+    If wb.ReadOnly Then
+        EnsureRepoMetaSheet = False
+        Exit Function
+    End If
+
+    Dim ws As Worksheet
+    If WorksheetExists(wb, BP_META_SHEET) Then
+        Set ws = wb.Worksheets(BP_META_SHEET)
+    Else
+        Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+        ws.Name = BP_META_SHEET
+        ws.Visible = xlSheetVeryHidden
+    End If
+
+    With ws.Range(BP_META_ADDR)
+        .NumberFormat = "General"
+        .ClearContents
+
+        'Intento en inglés
+        .Formula = "=LEFT(CELL(""filename"",A1),FIND(""["",CELL(""filename"",A1))-1)"
+
+        'Fallback por idioma (si queda #NAME? / #NOMBRE?)
+        If IsError(.Value2) Then
+            .ClearContents
+            .FormulaLocal = "=IZQUIERDA(CELDA(""nombredearchivo"";A1);ENCONTRAR(""["";CELDA(""nombredearchivo"";A1))-1)"
+        End If
+    End With
+
+    ws.Calculate
+    wb.Save  'si quieres que quede persistente en el BP
+
+    EnsureRepoMetaSheet = True
+    Exit Function
+
+EH:
+    EnsureRepoMetaSheet = False
+End Function

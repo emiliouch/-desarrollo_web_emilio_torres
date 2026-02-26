@@ -1,0 +1,31 @@
+Private Sub SetRepoMetaPathFormula(ByVal wb As Workbook)
+    Const META_SHEET As String = "__repo_meta"
+    Const META_CELL As String = "A1"
+
+    Dim ws As Worksheet
+
+    'Asegurar sheet
+    If Not WorksheetExists(wb, META_SHEET) Then
+        Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+        ws.Name = META_SHEET
+        ws.Visible = xlSheetVeryHidden
+    Else
+        Set ws = wb.Worksheets(META_SHEET)
+    End If
+
+    With ws.Range(META_CELL)
+        .NumberFormat = "General"
+        .ClearContents
+
+        'Intento 1: fórmula en inglés
+        .Formula = "=LEFT(CELL(""filename"",A1),FIND(""["",CELL(""filename"",A1))-1)"
+
+        'Si queda #NAME?/ #NOMBRE? (por idioma), usamos local
+        If IsError(.Value2) Then
+            .ClearContents
+            .FormulaLocal = "=IZQUIERDA(CELDA(""nombredearchivo"";A1);ENCONTRAR(""["";CELDA(""nombredearchivo"";A1))-1)"
+        End If
+    End With
+
+    ws.Calculate
+End Sub

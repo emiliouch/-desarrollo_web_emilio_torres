@@ -1605,17 +1605,18 @@ Private Sub ReadBPMensualVars(ByVal wsM As Worksheet, _
     otrosCostosCLP = wsM.Range(BP_KR_OTROS_COSTOS).Value2
 End Sub
 
-Private Function CountMesesExpuestos_BP(ByVal wsM As Worksheet) As Long
+Private Function CountMesesExpuestos_BP(ByVal wsM As Worksheet, Optional ByVal rowNum As Long = BP_MES_EXP_ROW) As Long
     Dim lastCol As Long
-    lastCol = wsM.Cells(BP_MES_EXP_ROW, wsM.Columns.Count).End(xlToLeft).Column
+    lastCol = wsM.Cells(rowNum, wsM.Columns.Count).End(xlToLeft).Column
     If lastCol < BP_MES_EXP_COL_START Then lastCol = BP_MES_EXP_COL_START
 
     Dim c As Long, v As Double, cnt As Long
     cnt = 0
+
+    'Conteo de cuántas columnas tienen dato > 0
     For c = BP_MES_EXP_COL_START To lastCol
-        v = CDbl(ValSafe(wsM.Cells(BP_MES_EXP_ROW, c).Value2))
-        If v = 0# Then Exit For
-        cnt = cnt + 1
+        v = CDbl(ValSafe(wsM.Cells(rowNum, c).Value2))
+        If v > 0# Then cnt = cnt + 1
     Next c
 
     CountMesesExpuestos_BP = cnt

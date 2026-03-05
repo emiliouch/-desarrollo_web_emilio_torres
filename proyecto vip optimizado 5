@@ -189,11 +189,11 @@ Private Function BuildSumFormula_A1(ByVal prefixes As Variant, ByVal wsBP As Wor
 
     Dim i As Long, s As String
     For i = LBound(prefixes) To UBound(prefixes)
-        If Len(s) > 0 Then s = s & sep
+        If Len(s) > 0 Then s = s & "+"
         s = s & prefixes(i) & addr
     Next i
 
-    BuildSumFormula_A1 = "=SUMA(" & s & ")"
+    BuildSumFormula_A1 = "=" & s
 End Function
 
 '=========================================================

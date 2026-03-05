@@ -15,6 +15,14 @@ Private Const RES_FIRST_ROW As Long = 6
 Private Const RES_LAST_ROW As Long = 68
 Private Const RES_SRC_COL_LETTER As String = "KR" 'en hijos: BP Mensual!KR{fila}
 
+'--- NUEVO: Config Nueva Hoja
+Private Const NUEVA_SHEET_NAME As String = "Nueva Hoja"
+Private Const NUEVA_SRC_PARAM_SHEET As String = "Parametros"
+Private Const NUEVA_HEADER_ROW As Long = 4
+Private Const NUEVA_VALUE_ROW As Long = 18
+Private Const NUEVA_START_COL As Long = 3        'C
+Private Const NUEVA_COL_STEP As Long = 4         'cada 4 columnas: C, G, K, O, ...
+
 'Filas intocables por hoja
 Private BP_SKIP_ROWS As Variant
 Private RES_SKIP_ROWS As Variant
@@ -37,13 +45,14 @@ Public Sub ActualizarBP()
     Application.DisplayAlerts = False
     Application.Calculation = xlCalculationManual
 
-    'Fila 30 agregada
+    'Filas intocables (incluye fila 30)
     BP_SKIP_ROWS = Array(11, 19, 28, 30, 31, 32, 33, 34, 35, 38, 47, 51, 54, 55, 60, 62, 64, 67, 69)
     RES_SKIP_ROWS = Array(11, 19, 28, 30, 31, 32, 33, 34, 35, 38, 47, 51, 54, 55, 60, 62, 64, 67, 69)
 
     stage = "Validar hojas"
     RequireSheet wbMaster, BP_SHEET_NAME
     RequireSheet wbMaster, RES_SHEET_NAME
+    RequireSheet wbMaster, NUEVA_SHEET_NAME  '<< NUEVO
 
     stage = "Obtener carpeta"
     Dim folderPath As String
@@ -58,7 +67,7 @@ Public Sub ActualizarBP()
     SortFilesNatural files
 
     '========================================================
-    ' 1) BP Mensual: SUMA vinculada (sin tocar formato)
+    ' 1) BP Mensual: sumas vinculadas con + (sin funciones)
     '========================================================
     stage = "Actualizar BP Mensual"
     BuildBP_LinkedSums_FillValues wbMaster.Worksheets(BP_SHEET_NAME), files, BP_SKIP_ROWS
@@ -68,6 +77,15 @@ Public Sub ActualizarBP()
     '========================================================
     stage = "Actualizar Resumen Consolidado"
     BuildResumen_FillValues wbMaster.Worksheets(RES_SHEET_NAME), files, RES_SKIP_ROWS
+
+    '========================================================
+    ' 3) NUEVO: Nueva Hoja
+    '   - Limpia SOLO fila 4 y 18 desde col C hasta el último plan
+    '   - Escribe nombre archivo en fila 4 (C, G, K, ...)
+    '   - Escribe fórmula Parametros!C1*C2/C3 en fila 18 (mismas columnas)
+    '========================================================
+    stage = "Actualizar Nueva Hoja"
+    BuildNuevaHoja wbMaster.Worksheets(NUEVA_SHEET_NAME), files
 
 CleanOk:
     Application.Calculation = prevCalc
@@ -118,16 +136,8 @@ End Sub
 
 '=========================================================
 ' 1) BP Mensual — rápido, sin cambiar formato
-'
-' Estrategia:
-' - Para cada bloque de filas contiguas (saltando intocables)
-'   1) Escribo fórmulas SOLO en la primera fila del bloque (C..KP)
-'   2) AutoFill hacia abajo con xlFillValues (NO copia formato)
 '=========================================================
 Private Sub BuildBP_LinkedSums_FillValues(ByVal wsBP As Worksheet, ByVal files As Variant, ByVal skipRows As Variant)
-    Dim sep As String
-    sep = Application.International(xlListSeparator) 'en español normalmente ";"
-
     Dim prefixes() As String
     prefixes = BuildExternalPrefixes(files, BP_SHEET_NAME)
 
@@ -137,7 +147,7 @@ Private Sub BuildBP_LinkedSums_FillValues(ByVal wsBP As Worksheet, ByVal files A
     For r = BP_FIRST_ROW To BP_LAST_ROW
         If IsRowInList(r, skipRows) Then
             If startRow <> 0 Then
-                FillBPBlock wsBP, startRow, endRow, prefixes, sep
+                FillBPBlock wsBP, startRow, endRow, prefixes
                 startRow = 0: endRow = 0
             End If
         Else
@@ -146,44 +156,38 @@ Private Sub BuildBP_LinkedSums_FillValues(ByVal wsBP As Worksheet, ByVal files A
         End If
     Next r
 
-    If startRow <> 0 Then
-        FillBPBlock wsBP, startRow, endRow, prefixes, sep
-    End If
+    If startRow <> 0 Then FillBPBlock wsBP, startRow, endRow, prefixes
 End Sub
 
-Private Sub FillBPBlock(ByVal wsBP As Worksheet, ByVal startRow As Long, ByVal endRow As Long, ByVal prefixes As Variant, ByVal sep As String)
+Private Sub FillBPBlock(ByVal wsBP As Worksheet, ByVal startRow As Long, ByVal endRow As Long, ByVal prefixes As Variant)
     Dim colsCount As Long
     colsCount = BP_LAST_COL - BP_FIRST_COL + 1
 
-    '1) Construyo fórmulas solo para la primera fila del bloque (C..KP)
+    'Fórmulas solo para la primera fila del bloque (C..KP)
     Dim arrRow() As Variant
     ReDim arrRow(1 To 1, 1 To colsCount)
 
     Dim c As Long, excelCol As Long
     For c = 1 To colsCount
         excelCol = BP_FIRST_COL + c - 1
-        arrRow(1, c) = BuildSumFormula_A1(prefixes, wsBP, startRow, excelCol, sep)
+        arrRow(1, c) = BuildPlusFormula_A1(prefixes, wsBP, startRow, excelCol)
     Next c
 
-    'Rango de la fila base (source): C{startRow}:KP{startRow}
     Dim rngSource As Range
     Set rngSource = wsBP.Range(wsBP.Cells(startRow, BP_FIRST_COL), wsBP.Cells(startRow, BP_LAST_COL))
 
-    'Escribo la fila source de una vez (rápido) — no cambia formatos, solo contenido
-    rngSource.FormulaLocal = arrRow
+    'Idioma-independiente: usamos .Formula (no FormulaLocal) y solo operadores "+"
+    rngSource.Formula = arrRow
 
-    '2) Si el bloque tiene más de 1 fila, relleno hacia abajo SOLO valores/fórmulas (sin formatos)
     If endRow > startRow Then
         Dim rngDest As Range
         Set rngDest = wsBP.Range(wsBP.Cells(startRow, BP_FIRST_COL), wsBP.Cells(endRow, BP_LAST_COL))
-
         rngSource.AutoFill Destination:=rngDest, Type:=xlFillValues
     End If
 End Sub
 
-'Construye =SUMA('...\[f1]BP Mensual'!C6; '...\[f2]BP Mensual'!C6; ...)
-'Usa A1 SIN $ para que AutoFill ajuste filas/columnas naturalmente.
-Private Function BuildSumFormula_A1(ByVal prefixes As Variant, ByVal wsBP As Worksheet, ByVal rowNum As Long, ByVal colNum As Long, ByVal sep As String) As String
+'Construye: =ref1+ref2+ref3 ... (sin SUM/SUMA)
+Private Function BuildPlusFormula_A1(ByVal prefixes As Variant, ByVal wsBP As Worksheet, ByVal rowNum As Long, ByVal colNum As Long) As String
     Dim addr As String
     addr = wsBP.Cells(rowNum, colNum).Address(RowAbsolute:=False, ColumnAbsolute:=False) 'ej: C6
 
@@ -193,19 +197,18 @@ Private Function BuildSumFormula_A1(ByVal prefixes As Variant, ByVal wsBP As Wor
         s = s & prefixes(i) & addr
     Next i
 
-    BuildSumFormula_A1 = "=" & s
+    BuildPlusFormula_A1 = "=" & s
 End Function
 
 '=========================================================
 ' 2) Resumen Consolidado — rápido, sin cambiar formato
-'
-' - Cada archivo ocupa una columna (C, D, E...)
-' - Para cada bloque de filas, seteo fórmula solo en la primera celda del bloque
-'   y FillDown con xlFillValues.
 '=========================================================
 Private Sub BuildResumen_FillValues(ByVal wsRes As Worksheet, ByVal files As Variant, ByVal skipRows As Variant)
+    'Si tienes limpieza especial aquí, llámala antes (según tu versión final).
+    'NOTA: en tu contexto previo también existía "no borrar columna X". No lo toco aquí.
+
     Dim prefixes() As String
-    prefixes = BuildExternalPrefixes(files, BP_SHEET_NAME) 'uno por archivo
+    prefixes = BuildExternalPrefixes(files, BP_SHEET_NAME)
 
     Dim srcKRCol As Long
     srcKRCol = ColLetterToNum(RES_SRC_COL_LETTER)
@@ -215,49 +218,6 @@ Private Sub BuildResumen_FillValues(ByVal wsRes As Worksheet, ByVal files As Var
         dstCol = RES_FIRST_COL + (i - LBound(files))
         FillResumenColumn wsRes, dstCol, prefixes(i), srcKRCol, skipRows
     Next i
-End Sub
-
-Private Sub ClearResumenFromColC(ByVal wsRes As Worksheet)
-    Const COL_C As Long = 3
-    Const COL_X As Long = 24
-    Const COL_Y As Long = 25
-
-    Dim lastCol As Long, lastRow As Long
-    Dim f As Range
-
-    'Última columna usada real
-    Set f = wsRes.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
-                             SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
-    If f Is Nothing Then
-        lastCol = COL_C
-    Else
-        lastCol = f.Column
-        If lastCol < COL_C Then lastCol = COL_C
-    End If
-
-    'Última fila usada real
-    Set f = wsRes.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
-                             SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
-    If f Is Nothing Then
-        lastRow = 1
-    Else
-        lastRow = f.Row
-        If lastRow < 1 Then lastRow = 1
-    End If
-
-    '1) Limpiar C..W (sin tocar X)
-    If lastCol >= COL_C Then
-        Dim endLeft As Long
-        endLeft = Application.Min(lastCol, COL_X - 1) 'W = 23
-        If endLeft >= COL_C Then
-            wsRes.Range(wsRes.Cells(1, COL_C), wsRes.Cells(lastRow, endLeft)).ClearContents
-        End If
-    End If
-
-    '2) Limpiar Y..last (sin tocar X)
-    If lastCol >= COL_Y Then
-        wsRes.Range(wsRes.Cells(1, COL_Y), wsRes.Cells(lastRow, lastCol)).ClearContents
-    End If
 End Sub
 
 Private Sub FillResumenColumn(ByVal wsRes As Worksheet, ByVal dstCol As Long, ByVal prefixOneFile As String, ByVal srcKRCol As Long, ByVal skipRows As Variant)
@@ -276,15 +236,12 @@ Private Sub FillResumenColumn(ByVal wsRes As Worksheet, ByVal dstCol As Long, By
         End If
     Next r
 
-    If startRow <> 0 Then
-        FillResumenBlock wsRes, dstCol, startRow, endRow, prefixOneFile, srcKRCol
-    End If
+    If startRow <> 0 Then FillResumenBlock wsRes, dstCol, startRow, endRow, prefixOneFile, srcKRCol
 End Sub
 
 Private Sub FillResumenBlock(ByVal wsRes As Worksheet, ByVal dstCol As Long, ByVal startRow As Long, ByVal endRow As Long, ByVal prefixOneFile As String, ByVal srcKRCol As Long)
-    'Primera celda del bloque: referencia a KR{startRow} del archivo i
     Dim srcAddr As String
-    srcAddr = wsRes.Cells(startRow, srcKRCol).Address(RowAbsolute:=False, ColumnAbsolute:=False) 'ej KR6 (relativo)
+    srcAddr = wsRes.Cells(startRow, srcKRCol).Address(RowAbsolute:=False, ColumnAbsolute:=False)
 
     Dim topCell As Range
     Set topCell = wsRes.Cells(startRow, dstCol)
@@ -299,8 +256,50 @@ Private Sub FillResumenBlock(ByVal wsRes As Worksheet, ByVal dstCol As Long, ByV
 End Sub
 
 '=========================================================
-' Prefijos externos (optimiza strings)
-' Devuelve: 'C:\...\[Archivo.xlsm]BP Mensual'!
+' 3) NUEVO: Nueva Hoja
+'=========================================================
+Private Sub BuildNuevaHoja(ByVal wsNueva As Worksheet, ByVal files As Variant)
+    Dim n As Long
+    n = (UBound(files) - LBound(files) + 1)
+    If n <= 0 Then Exit Sub
+
+    'Última columna que vamos a usar: C + (n-1)*4
+    Dim lastPlanCol As Long
+    lastPlanCol = NUEVA_START_COL + (n - 1) * NUEVA_COL_STEP
+
+    '1) Limpieza controlada: SOLO filas 4 y 18, desde C hasta lastPlanCol
+    ClearNuevaHojaRows wsNueva, lastPlanCol
+
+    Dim i As Long, dstCol As Long
+    Dim planName As String
+    Dim prefParam As String
+
+    For i = LBound(files) To UBound(files)
+        dstCol = NUEVA_START_COL + (i - LBound(files)) * NUEVA_COL_STEP
+
+        planName = GetFileFromFullName(CStr(files(i)))
+
+        '2) Nombre archivo en fila 4 (C4, G4, K4...)
+        wsNueva.Cells(NUEVA_HEADER_ROW, dstCol).Value = planName
+
+        '3) Fórmula vinculada en fila 18:
+        '   Parametros!C1 * C2 / C3
+        prefParam = ExternalPrefix(CStr(files(i)), NUEVA_SRC_PARAM_SHEET) '...Parametros'!
+
+        wsNueva.Cells(NUEVA_VALUE_ROW, dstCol).Formula = _
+            "=" & "(" & prefParam & "$C$1" & ")*(" & prefParam & "$C$2" & ")/(" & prefParam & "$C$3" & ")"
+    Next i
+End Sub
+
+'Limpiar SOLO filas 4 y 18, y SOLO desde col C hasta la última columna usada por planes.
+Private Sub ClearNuevaHojaRows(ByVal wsNueva As Worksheet, ByVal lastPlanCol As Long)
+    wsNueva.Range(wsNueva.Cells(NUEVA_HEADER_ROW, NUEVA_START_COL), wsNueva.Cells(NUEVA_HEADER_ROW, lastPlanCol)).ClearContents
+    wsNueva.Range(wsNueva.Cells(NUEVA_VALUE_ROW, NUEVA_START_COL), wsNueva.Cells(NUEVA_VALUE_ROW, lastPlanCol)).ClearContents
+End Sub
+
+'=========================================================
+' Prefijos externos
+' Devuelve: 'C:\...\[Archivo.xlsm]Hoja'!
 '=========================================================
 Private Function BuildExternalPrefixes(ByVal files As Variant, ByVal sheetName As String) As String()
     Dim prefixes() As String
@@ -412,7 +411,7 @@ Private Function ColLetterToNum(ByVal colLetters As String) As Long
 End Function
 
 '=========================================================
-' Orden natural
+' Orden natural (Plan 1 < Plan 2 < Plan 10)
 '=========================================================
 Private Sub SortFilesNatural(ByRef files As Variant)
     If IsEmpty(files) Then Exit Sub
